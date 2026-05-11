@@ -18,6 +18,13 @@ import { getStatusHandler, getSyncthingHandler } from './status'
 import { getClaudeMdHandler, saveClaudeMdHandler } from './claudeMd'
 import { getSessionsHandler } from './sessions'
 import { getVaultTreeHandler, getVaultFileHandler, saveVaultFileHandler } from './vault'
+import { getAgents, killAgent } from './agents'
+import {
+  initCheckpointWatcher,
+  getCheckpointsHandler,
+  streamCheckpointsHandler,
+  updateCheckpointHandler,
+} from './checkpoints'
 
 const app = express()
 const server = http.createServer(app)
@@ -52,6 +59,24 @@ app.post('/api/claude-md', requireAuth, saveClaudeMdHandler)
 app.get('/api/vault/tree', requireAuth, getVaultTreeHandler)
 app.get('/api/vault/file', requireAuth, getVaultFileHandler)
 app.post('/api/vault/file', requireAuth, saveVaultFileHandler)
+
+app.get('/api/agents', requireAuth, (_req, res) => {
+  res.json(getAgents())
+})
+
+app.post('/api/agents/:pid/kill', requireAuth, (req, res) => {
+  const pid = parseInt(req.params.pid, 10)
+  if (isNaN(pid)) {
+    res.status(400).json({ error: 'invalid pid' })
+    return
+  }
+  const ok = killAgent(pid)
+  res.json({ ok })
+})
+
+app.get('/api/checkpoints', requireAuth, getCheckpointsHandler)
+app.get('/api/checkpoints/stream', requireAuth, streamCheckpointsHandler)
+app.post('/api/checkpoints/:id', requireAuth, updateCheckpointHandler)
 
 // HTTP terminal fallback for environments that aggressively drop WebSockets.
 app.post('/api/terminal/start', requireAuth, (_req, res) => {
@@ -167,6 +192,7 @@ const PORT = parseInt(process.env.PORT || '3456')
 const SESSIONS_PATH = process.env.SESSIONS_MD_PATH || '/data/obsidian/logs/sessions.md'
 
 initFileWatcher(SESSIONS_PATH)
+initCheckpointWatcher()
 
 server.listen(PORT, () => {
   console.log(`

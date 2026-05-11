@@ -101,3 +101,57 @@ export async function saveVaultFile(relPath: string, content: string): Promise<{
   })
   return r.json()
 }
+
+export interface AgentProcess {
+  pid: number
+  name: string
+  cmdline: string
+  cwd: string
+  project: string
+  status: 'running' | 'sleeping'
+  memMb: number
+  cpuPercent: number
+  runtimeSecs: number
+}
+
+export interface Checkpoint {
+  id: string
+  ts: string
+  agent: string
+  action: string
+  context: string
+  risk: 'high' | 'medium' | 'low'
+  status: 'pending' | 'approved' | 'denied'
+}
+
+export async function getAgents(): Promise<AgentProcess[]> {
+  const r = await authFetch('/api/agents')
+  return r.json()
+}
+
+export async function killAgent(pid: number): Promise<{ ok: boolean }> {
+  const r = await authFetch(`/api/agents/${pid}/kill`, { method: 'POST' })
+  return r.json()
+}
+
+export async function getCheckpoints(): Promise<Checkpoint[]> {
+  const r = await authFetch('/api/checkpoints')
+  return r.json()
+}
+
+export async function updateCheckpoint(
+  id: string,
+  status: 'approved' | 'denied',
+): Promise<{ ok: boolean }> {
+  const r = await authFetch(`/api/checkpoints/${id}`, {
+    method: 'POST',
+    body: JSON.stringify({ status }),
+  })
+  return r.json()
+}
+
+export async function getCheckpointsSSEUrl(): Promise<string> {
+  const { data: { session } } = await (await import('./supabase')).supabase.auth.getSession()
+  const token = session?.access_token || ''
+  return `${BASE_URL}/api/checkpoints/stream?token=${encodeURIComponent(token)}`
+}

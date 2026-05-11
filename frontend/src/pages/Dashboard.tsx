@@ -5,6 +5,8 @@ import { TerminalTabs } from '../components/TerminalTabs'
 import { SessionsFeed } from '../components/SessionsFeed'
 import { VaultTree } from '../components/VaultTree'
 import { VaultEditor, type OpenFile } from '../components/VaultEditor'
+import { AgentMonitor } from '../components/AgentMonitor'
+import { CheckpointQueue } from '../components/CheckpointQueue'
 import { DotGrid } from '../components/DotGrid'
 import { getVaultFile } from '../lib/api'
 
@@ -14,7 +16,7 @@ const SIDEBAR_DEFAULT = 380
 const STORAGE_KEY = 'pineapple-sidebar-width'
 const SIDEBAR_TAB_KEY = 'pineapple-sidebar-tab'
 
-type SidebarTab = 'sessions' | 'files'
+type SidebarTab = 'sessions' | 'files' | 'agents'
 
 function loadSidebarWidth(): number {
   try {
@@ -30,7 +32,7 @@ function loadSidebarWidth(): number {
 function loadSidebarTab(): SidebarTab {
   try {
     const v = localStorage.getItem(SIDEBAR_TAB_KEY)
-    if (v === 'sessions' || v === 'files') return v
+    if (v === 'sessions' || v === 'files' || v === 'agents') return v
   } catch {}
   return 'sessions'
 }
@@ -41,6 +43,7 @@ export function Dashboard() {
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(loadSidebarTab)
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
   const [activeFileIdx, setActiveFileIdx] = useState(0)
+  const [pendingCheckpoints, setPendingCheckpoints] = useState(0)
 
   const isDraggingRef = useRef(false)
   const dragStartXRef = useRef(0)
@@ -157,6 +160,13 @@ export function Dashboard() {
     }
   }, [])
 
+  // Browser title badge for pending checkpoints
+  useEffect(() => {
+    document.title = pendingCheckpoints > 0
+      ? `[${pendingCheckpoints}] Pineapple OS`
+      : 'Pineapple OS'
+  }, [pendingCheckpoints])
+
   const activeFilePath = openFiles[activeFileIdx]?.path ?? ''
 
   return (
@@ -187,11 +197,11 @@ export function Dashboard() {
         >
           {/* Sidebar tab bar */}
           <div className="flex gap-1 mb-2 flex-shrink-0">
-            {(['sessions', 'files'] as SidebarTab[]).map(tab => (
+            {(['sessions', 'files', 'agents'] as SidebarTab[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => switchTab(tab)}
-                className="px-3 py-1 rounded-md text-xs font-mono capitalize transition-all"
+                className="px-3 py-1 rounded-md text-xs font-mono capitalize transition-all flex items-center gap-1.5"
                 style={{
                   background: sidebarTab === tab ? '#0ea5e920' : 'transparent',
                   color: sidebarTab === tab ? '#0ea5e9' : '#64748b',
@@ -199,6 +209,14 @@ export function Dashboard() {
                 }}
               >
                 {tab}
+                {tab === 'agents' && pendingCheckpoints > 0 && (
+                  <span
+                    className="w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold"
+                    style={{ background: '#ef4444', color: '#fff' }}
+                  >
+                    {pendingCheckpoints}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -245,6 +263,21 @@ export function Dashboard() {
                   onSaveResult={handleSaveResult}
                   onQuickOpen={handleOpenFile}
                 />
+              </div>
+            </div>
+          )}
+
+          {/* Agents panel */}
+          {sidebarTab === 'agents' && (
+            <div className="flex-1 min-h-0 flex flex-col gap-3">
+              <div className="flex-shrink-0" style={{ maxHeight: '45%', minHeight: 120 }}>
+                <CheckpointQueue
+                  className="h-full"
+                  onPendingCount={setPendingCheckpoints}
+                />
+              </div>
+              <div className="flex-1 min-h-0">
+                <AgentMonitor className="h-full" />
               </div>
             </div>
           )}
