@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { NavBar } from '../components/NavBar'
 import { WidgetBar } from '../components/WidgetBar'
 import { TerminalTabs } from '../components/TerminalTabs'
-import { SessionsFeed } from '../components/SessionsFeed'
 import { VaultTree } from '../components/VaultTree'
 import { VaultEditor, type OpenFile } from '../components/VaultEditor'
 import { AgentMonitor } from '../components/AgentMonitor'
@@ -11,6 +10,22 @@ import { MobileDashboard } from '../components/MobileDashboard'
 import { DotGrid } from '../components/DotGrid'
 import { GripVertical } from 'lucide-react'
 import { getVaultFile } from '../lib/api'
+
+const TREE_MIN = 80
+const TREE_MAX = 420
+const TREE_DEFAULT = 200
+const TREE_HEIGHT_KEY = 'pineapple-tree-height'
+
+function loadTreeHeight(): number {
+  try {
+    const v = localStorage.getItem(TREE_HEIGHT_KEY)
+    if (v) {
+      const n = parseInt(v, 10)
+      if (n >= TREE_MIN && n <= TREE_MAX) return n
+    }
+  } catch {}
+  return TREE_DEFAULT
+}
 
 function useIsMobile(): boolean {
   const [mobile, setMobile] = useState(() => window.innerWidth < 768)
@@ -29,7 +44,7 @@ const SIDEBAR_DEFAULT = 380
 const STORAGE_KEY = 'pineapple-sidebar-width'
 const SIDEBAR_TAB_KEY = 'pineapple-sidebar-tab'
 
-type SidebarTab = 'sessions' | 'files' | 'agents'
+type SidebarTab = 'files' | 'agents'
 
 function loadSidebarWidth(): number {
   try {
@@ -45,9 +60,9 @@ function loadSidebarWidth(): number {
 function loadSidebarTab(): SidebarTab {
   try {
     const v = localStorage.getItem(SIDEBAR_TAB_KEY)
-    if (v === 'sessions' || v === 'files' || v === 'agents') return v
+    if (v === 'files' || v === 'agents') return v
   } catch {}
-  return 'sessions'
+  return 'files'
 }
 
 export function Dashboard() {
@@ -63,12 +78,18 @@ function DesktopDashboard() {
   const [activeFileIdx, setActiveFileIdx] = useState(0)
   const [pendingCheckpoints, setPendingCheckpoints] = useState(0)
   const [resizing, setResizing] = useState(false)
+  const [treeHeight, setTreeHeight] = useState(loadTreeHeight)
+  const [resizingTree, setResizingTree] = useState(false)
 
   const isDraggingRef = useRef(false)
   const dragStartXRef = useRef(0)
   const dragStartWidthRef = useRef(0)
   const openFilesRef = useRef(openFiles)
   openFilesRef.current = openFiles
+
+  const isTreeDraggingRef = useRef(false)
+  const treeDragStartYRef = useRef(0)
+  const treeDragStartHeightRef = useRef(0)
 
   // Persist sidebar tab
   const switchTab = useCallback((tab: SidebarTab) => {
@@ -109,7 +130,39 @@ function DesktopDashboard() {
     }
   }, [])
 
-  // Open a vault file in the editor
+  const onTreeResizerMouseDown = useCallback((e: React.MouseEvent) => {
+    isTreeDraggingRef.current = true
+    treeDragStartYRef.current = e.clientY
+    treeDragStartHeightRef.current = treeHeight
+    setResizingTree(true)
+    e.preventDefault()
+  }, [treeHeight])
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isTreeDraggingRef.current) return
+      const delta = e.clientY - treeDragStartYRef.current
+      const next = Math.min(TREE_MAX, Math.max(TREE_MIN, treeDragStartHeightRef.current + delta))
+      setTreeHeight(next)
+    }
+    const onMouseUp = () => {
+      if (!isTreeDraggingRef.current) return
+      isTreeDraggingRef.current = false
+      setResizingTree(false)
+      setTreeHeight(prev => {
+        try { localStorage.setItem(TREE_HEIGHT_KEY, String(prev)) } catch {}
+        return prev
+      })
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
+
+  // Open a vault file in the viewer
   const handleOpenFile = useCallback(async (relPath: string) => {
     const existing = openFilesRef.current.findIndex(f => f.path === relPath)
     if (existing !== -1) {
@@ -120,7 +173,7 @@ function DesktopDashboard() {
 
     // Add placeholder while loading
     const label = relPath.split('/').pop() ?? relPath
-    const placeholder: OpenFile = { path: relPath, label, content: '', savedContent: '' }
+    const placeholder: OpenFile = { path: relPath, label, content: '' }
     setOpenFiles(prev => {
       const next = [...prev, placeholder]
       setActiveFileIdx(next.length - 1)
@@ -131,13 +184,9 @@ function DesktopDashboard() {
     try {
       const data = await getVaultFile(relPath)
       setOpenFiles(prev =>
-        prev.map(f => f.path === relPath
-          ? { ...f, content: data.content, savedContent: data.content }
-          : f
-        )
+        prev.map(f => f.path === relPath ? { ...f, content: data.content } : f)
       )
     } catch {
-      // Remove placeholder on error
       setOpenFiles(prev => {
         const next = prev.filter(f => f.path !== relPath)
         setActiveFileIdx(i => Math.min(i, Math.max(0, next.length - 1)))
@@ -156,29 +205,6 @@ function DesktopDashboard() {
       })
       return next
     })
-  }, [])
-
-  const handleChangeContent = useCallback((idx: number, content: string) => {
-    setOpenFiles(prev => prev.map((f, i) => i === idx ? { ...f, content } : f))
-  }, [])
-
-  const handleSetSaving = useCallback((idx: number) => {
-    setOpenFiles(prev => prev.map((f, i) => i === idx ? { ...f, saving: true, saveError: false } : f))
-  }, [])
-
-  const handleSaveResult = useCallback((idx: number, saved: boolean, error?: boolean) => {
-    setOpenFiles(prev => prev.map((f, i) => {
-      if (i !== idx) return f
-      return saved
-        ? { ...f, savedContent: f.content, saving: false, saveError: false }
-        : { ...f, saving: false, saveError: !!error }
-    }))
-    // Clear error indicator after 3s
-    if (error) {
-      setTimeout(() => {
-        setOpenFiles(prev => prev.map((f, i) => i === idx ? { ...f, saveError: false } : f))
-      }, 3000)
-    }
   }, [])
 
   // Browser title badge for pending checkpoints
@@ -228,7 +254,7 @@ function DesktopDashboard() {
         >
           {/* Sidebar tab bar */}
           <div className="flex gap-1 mb-2 flex-shrink-0">
-            {(['sessions', 'files', 'agents'] as SidebarTab[]).map(tab => (
+            {(['files', 'agents'] as SidebarTab[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => switchTab(tab)}
@@ -252,47 +278,43 @@ function DesktopDashboard() {
             ))}
           </div>
 
-          {/* Sessions panel */}
-          {sidebarTab === 'sessions' && (
-            <div className="flex-1 min-h-0 flex flex-col gap-3 animate-fade-in">
-              <div className="flex-1 min-h-0">
-                <SessionsFeed />
-              </div>
-              <div className="h-64 flex-shrink-0">
-                <VaultEditor
-                  files={openFiles}
-                  activeIdx={activeFileIdx}
-                  onActivate={setActiveFileIdx}
-                  onClose={handleCloseFile}
-                  onChangeContent={handleChangeContent}
-                  onSetSaving={handleSetSaving}
-                  onSaveResult={handleSaveResult}
-                  onQuickOpen={handleOpenFile}
-                />
-              </div>
-            </div>
-          )}
-
           {/* Files panel */}
           {sidebarTab === 'files' && (
-            <div className="flex-1 min-h-0 flex flex-col gap-3 animate-fade-in">
-              <div className="h-56 flex-shrink-0">
+            <div className="flex-1 min-h-0 flex flex-col animate-fade-in">
+              {/* Tree — resizable height */}
+              <div style={{ height: treeHeight, flexShrink: 0 }}>
                 <VaultTree
                   openFilePath={activeFilePath}
                   onOpenFile={handleOpenFile}
                   className="h-full"
                 />
               </div>
+
+              {/* Vertical drag handle */}
+              <div
+                className="h-3 flex-shrink-0 flex items-center justify-center cursor-row-resize group"
+                onMouseDown={onTreeResizerMouseDown}
+              >
+                <div className="relative w-full flex items-center justify-center h-full">
+                  <div className="absolute inset-x-0 h-px bg-navy-600/30 group-hover:bg-electric/30 transition-colors top-1/2 -translate-y-1/2" />
+                  <GripVertical
+                    size={14}
+                    className="relative text-slate-700 group-hover:text-electric/60 transition-colors rotate-90"
+                    strokeWidth={1.5}
+                    style={{ transition: resizingTree ? 'none' : undefined }}
+                  />
+                </div>
+              </div>
+
+              {/* Viewer — takes remaining space */}
               <div className="flex-1 min-h-0">
                 <VaultEditor
                   files={openFiles}
                   activeIdx={activeFileIdx}
                   onActivate={setActiveFileIdx}
                   onClose={handleCloseFile}
-                  onChangeContent={handleChangeContent}
-                  onSetSaving={handleSetSaving}
-                  onSaveResult={handleSaveResult}
                   onQuickOpen={handleOpenFile}
+                  className="h-full"
                 />
               </div>
             </div>
