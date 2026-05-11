@@ -9,7 +9,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return
   }
   try {
-    const decoded = jwt.verify(token, process.env.SUPABASE_JWT_SECRET!, { algorithms: ['HS256'] })
+    const decoded = jwt.verify(token, Buffer.from(process.env.SUPABASE_JWT_SECRET!, 'base64'), { algorithms: ['HS256'] })
     ;(req as any).user = decoded
     next()
   } catch {

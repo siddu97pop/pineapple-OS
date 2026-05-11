@@ -59,7 +59,7 @@ server.on('upgrade', (request, socket, head) => {
     }
 
     try {
-      jwt.verify(token, process.env.SUPABASE_JWT_SECRET!, { algorithms: ['HS256'] })
+      jwt.verify(token, Buffer.from(process.env.SUPABASE_JWT_SECRET!, 'base64'), { algorithms: ['HS256'] })
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request)
       })
