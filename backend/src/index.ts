@@ -63,14 +63,16 @@ app.post('/api/terminal/start', requireAuth, (_req, res) => {
   }
 })
 
-app.get('/api/terminal/poll', requireAuth, (req, res) => {
+app.get('/api/terminal/poll', requireAuth, async (req, res) => {
   const sessionId = String((req.query as any)?.sessionId || '')
   const since = Number((req.query as any)?.since || '0')
+  const waitMs = Number((req.query as any)?.waitMs || '25000')
   if (!sessionId) {
     res.status(400).json({ error: 'sessionId is required' })
     return
   }
-  res.json(pollTerminalSession(sessionId, since))
+  const body = await pollTerminalSession(sessionId, since, waitMs)
+  res.json(body)
 })
 
 app.post('/api/terminal/input', requireAuth, (req, res) => {

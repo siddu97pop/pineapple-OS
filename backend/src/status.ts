@@ -2,6 +2,21 @@ import { Request, Response } from 'express'
 import fs from 'fs/promises'
 import os from 'os'
 
+const loadHistory: number[] = []
+const MAX_HISTORY = 10
+
+async function sampleLoad(): Promise<void> {
+  try {
+    const raw = await fs.readFile('/proc/loadavg', 'utf8')
+    const load1 = parseFloat(raw.split(' ')[0])
+    loadHistory.push(load1)
+    if (loadHistory.length > MAX_HISTORY) loadHistory.splice(0, loadHistory.length - MAX_HISTORY)
+  } catch {}
+}
+
+void sampleLoad()
+setInterval(() => void sampleLoad(), 30_000)
+
 export async function getStatusHandler(req: Request, res: Response): Promise<void> {
   try {
     const uptimeRaw = await fs.readFile('/proc/uptime', 'utf8')
@@ -14,6 +29,7 @@ export async function getStatusHandler(req: Request, res: Response): Promise<voi
       load_5: parseFloat(parts[1]),
       load_15: parseFloat(parts[2]),
       hostname: os.hostname(),
+      load_history: [...loadHistory],
     })
   } catch {
     res.status(500).json({ error: 'Failed to read system status' })

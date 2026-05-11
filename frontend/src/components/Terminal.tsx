@@ -33,6 +33,7 @@ const XTERM_THEME = {
 
 interface TerminalProps {
   className?: string
+  isActive?: boolean
 }
 
 interface PollResponse {
@@ -41,7 +42,7 @@ interface PollResponse {
   events: Array<{ seq: number; data: string }>
 }
 
-export function Terminal({ className = '' }: TerminalProps) {
+export function Terminal({ className = '', isActive = true }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -49,7 +50,7 @@ export function Terminal({ className = '' }: TerminalProps) {
   const tokenRef = useRef<string>('')
   const reconnectTimerRef = useRef<number>()
   const countdownTimerRef = useRef<number>()
-  const pollTimerRef = useRef<number>()
+  const pollAbortRef = useRef<AbortController | null>(null)
   const rafRef = useRef<number>()
   const inputTimerRef = useRef<number>()
   const inputBufferRef = useRef('')
@@ -59,6 +60,11 @@ export function Terminal({ className = '' }: TerminalProps) {
 
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting')
   const [reconnectIn, setReconnectIn] = useState(0)
+
+  const stopPolling = useCallback(() => {
+    pollAbortRef.current?.abort()
+    pollAbortRef.current = null
+  }, [])
 
   const authedFetch = useCallback(async (path: string, options: RequestInit = {}) => {
     if (!tokenRef.current) throw new Error('Missing auth token')
@@ -114,16 +120,25 @@ export function Terminal({ className = '' }: TerminalProps) {
 
   const queueInput = useCallback((data: string) => {
     inputBufferRef.current += data
+    if (data.includes('\r')) {
+      if (inputTimerRef.current) {
+        clearTimeout(inputTimerRef.current)
+        inputTimerRef.current = undefined
+      }
+      void flushInput()
+      return
+    }
     if (!inputTimerRef.current) {
       inputTimerRef.current = window.setTimeout(() => {
         void flushInput()
-      }, 20)
+      }, 8)
     }
   }, [flushInput])
 
   const stopSession = useCallback(async () => {
     const sessionId = sessionIdRef.current
     if (!sessionId) return
+    stopPolling()
     sessionIdRef.current = null
     sinceSeqRef.current = 0
     try {
@@ -132,13 +147,13 @@ export function Terminal({ className = '' }: TerminalProps) {
         body: JSON.stringify({ sessionId }),
       })
     } catch {}
-  }, [authedFetch])
+  }, [authedFetch, stopPolling])
 
   const startReconnectCountdown = useCallback(() => {
     if (isUnmountedRef.current) return
     clearTimeout(reconnectTimerRef.current)
     clearInterval(countdownTimerRef.current)
-    clearTimeout(pollTimerRef.current)
+    stopPolling()
     setReconnectIn(3)
     let remaining = 3
     countdownTimerRef.current = window.setInterval(() => {
@@ -151,16 +166,19 @@ export function Terminal({ className = '' }: TerminalProps) {
     reconnectTimerRef.current = window.setTimeout(() => {
       void connectRef.current?.()
     }, 3000)
-  }, [])
+  }, [stopPolling])
 
-  const schedulePoll = useCallback((sessionId: string) => {
+  const runPollLoop = useCallback(async (sessionId: string) => {
     if (isUnmountedRef.current) return
-    clearTimeout(pollTimerRef.current)
-    pollTimerRef.current = window.setTimeout(async () => {
+    stopPolling()
+    const controller = new AbortController()
+    pollAbortRef.current = controller
+
+    while (!isUnmountedRef.current && sessionIdRef.current === sessionId) {
       try {
         const resp = await authedFetch(
-          `/api/terminal/poll?sessionId=${encodeURIComponent(sessionId)}&since=${sinceSeqRef.current}`,
-          { method: 'GET' },
+          `/api/terminal/poll?sessionId=${encodeURIComponent(sessionId)}&since=${sinceSeqRef.current}&waitMs=25000`,
+          { method: 'GET', signal: controller.signal },
         )
         if (!resp.ok) throw new Error(`poll failed: ${resp.status}`)
         const body = await resp.json() as PollResponse
@@ -173,22 +191,22 @@ export function Terminal({ className = '' }: TerminalProps) {
         if (!body.alive) {
           throw new Error('terminal session ended')
         }
-        schedulePoll(sessionId)
       } catch {
-        if (isUnmountedRef.current) return
+        if (controller.signal.aborted || isUnmountedRef.current || sessionIdRef.current !== sessionId) return
         setWsStatus('disconnected')
-        void stopSession()
+        await stopSession()
         startReconnectCountdown()
+        return
       }
-    }, 120)
-  }, [authedFetch, startReconnectCountdown, stopSession])
+    }
+  }, [authedFetch, startReconnectCountdown, stopPolling, stopSession])
 
   const connect = useCallback(async () => {
     if (isUnmountedRef.current) return
     setWsStatus('connecting')
     clearTimeout(reconnectTimerRef.current)
     clearInterval(countdownTimerRef.current)
-    clearTimeout(pollTimerRef.current)
+    stopPolling()
 
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token || isUnmountedRef.current) return
@@ -202,17 +220,25 @@ export function Terminal({ className = '' }: TerminalProps) {
       sinceSeqRef.current = 0
       setWsStatus('connected')
       safeFit()
-      schedulePoll(startBody.sessionId)
+      void runPollLoop(startBody.sessionId)
     } catch {
       if (isUnmountedRef.current) return
       setWsStatus('disconnected')
       startReconnectCountdown()
     }
-  }, [authedFetch, safeFit, schedulePoll, startReconnectCountdown])
+  }, [authedFetch, runPollLoop, safeFit, startReconnectCountdown, stopPolling])
 
   useEffect(() => {
     connectRef.current = connect
   }, [connect])
+
+  // Re-fit when this tab becomes visible after being hidden.
+  useEffect(() => {
+    if (isActive) {
+      const id = window.requestAnimationFrame(() => safeFit())
+      return () => cancelAnimationFrame(id)
+    }
+  }, [isActive, safeFit])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -267,7 +293,7 @@ export function Terminal({ className = '' }: TerminalProps) {
       resizeObserver.disconnect()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       if (inputTimerRef.current) clearTimeout(inputTimerRef.current)
-      clearTimeout(pollTimerRef.current)
+      stopPolling()
       clearTimeout(reconnectTimerRef.current)
       clearInterval(countdownTimerRef.current)
       window.removeEventListener('resize', handleResize)
@@ -276,7 +302,7 @@ export function Terminal({ className = '' }: TerminalProps) {
       void stopSession()
       term.dispose()
     }
-  }, [connect, queueInput, safeFit, stopSession])
+  }, [connect, queueInput, safeFit, stopPolling, stopSession])
 
   return (
     <div className={`relative card overflow-hidden ${className}`}>

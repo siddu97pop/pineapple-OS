@@ -23,6 +23,7 @@ export interface StatusData {
   load_5: number
   load_15: number
   hostname: string
+  load_history?: number[]
 }
 
 export interface SyncthingData {
