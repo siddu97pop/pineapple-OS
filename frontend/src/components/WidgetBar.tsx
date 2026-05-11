@@ -28,6 +28,9 @@ function Dot() {
 }
 
 function Sparkline({ data }: { data: number[] }) {
+  const [key, setKey] = useState(0)
+  useEffect(() => { setKey(k => k + 1) }, [data.length])
+
   if (data.length < 2) return <span className="text-slate-700 font-mono text-xs">—</span>
   const W = 48
   const H = 14
@@ -42,6 +45,7 @@ function Sparkline({ data }: { data: number[] }) {
   return (
     <svg width={W} height={H} className="inline-block align-middle">
       <polyline
+        key={key}
         points={points}
         fill="none"
         stroke="#0ea5e9"
@@ -49,6 +53,7 @@ function Sparkline({ data }: { data: number[] }) {
         strokeLinejoin="round"
         strokeLinecap="round"
         opacity="0.8"
+        className="sparkline-animated"
       />
     </svg>
   )

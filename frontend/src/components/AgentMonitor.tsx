@@ -12,9 +12,10 @@ function fmtRuntime(secs: number): string {
 interface AgentCardProps {
   agent: AgentProcess
   onKill: (pid: number) => Promise<void>
+  readOnly?: boolean
 }
 
-function AgentCard({ agent, onKill }: AgentCardProps) {
+function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
   const [confirming, setConfirming] = useState(false)
   const [killing, setKilling] = useState(false)
 
@@ -44,18 +45,20 @@ function AgentCard({ agent, onKill }: AgentCardProps) {
           <span className="text-sky-300 truncate font-semibold">{agent.name}</span>
           <span className="text-slate-500">PID {agent.pid}</span>
         </div>
-        <button
-          onClick={handleKill}
-          disabled={killing}
-          className="flex-shrink-0 px-2 py-0.5 rounded text-xs transition-all"
-          style={{
-            background: confirming ? '#ef444420' : 'transparent',
-            color: confirming ? '#ef4444' : '#475569',
-            border: `1px solid ${confirming ? '#ef444440' : '#1e293b'}`,
-          }}
-        >
-          {killing ? '…' : confirming ? 'confirm?' : 'kill'}
-        </button>
+        {!readOnly && (
+          <button
+            onClick={handleKill}
+            disabled={killing}
+            className="flex-shrink-0 px-2 py-0.5 rounded text-xs transition-all"
+            style={{
+              background: confirming ? '#ef444420' : 'transparent',
+              color: confirming ? '#ef4444' : '#475569',
+              border: `1px solid ${confirming ? '#ef444440' : '#1e293b'}`,
+            }}
+          >
+            {killing ? '…' : confirming ? 'confirm?' : 'kill'}
+          </button>
+        )}
       </div>
 
       <div className="mt-1.5 flex items-center gap-3 text-slate-500">
@@ -70,7 +73,7 @@ function AgentCard({ agent, onKill }: AgentCardProps) {
   )
 }
 
-export function AgentMonitor({ className = '' }: { className?: string }) {
+export function AgentMonitor({ className = '', readOnly }: { className?: string; readOnly?: boolean }) {
   const [agents, setAgents] = useState<AgentProcess[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -110,7 +113,7 @@ export function AgentMonitor({ className = '' }: { className?: string }) {
           <div className="text-xs text-slate-600 font-mono text-center py-4">no agent processes found</div>
         )}
         {agents.map(agent => (
-          <AgentCard key={agent.pid} agent={agent} onKill={handleKill} />
+          <AgentCard key={agent.pid} agent={agent} onKill={handleKill} readOnly={readOnly} />
         ))}
       </div>
     </div>

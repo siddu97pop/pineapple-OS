@@ -26,6 +26,20 @@ export default {
       animation: {
         'pulse-slow': 'pulse 3s ease-in-out infinite',
         'spin-slow': 'spin 2s linear infinite',
+        'shake': 'shake 0.4s ease-in-out',
+        'fade-in': 'fadeIn 0.15s ease-out',
+      },
+      keyframes: {
+        shake: {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '15%': { transform: 'translateX(-5px)' },
+          '45%': { transform: 'translateX(5px)' },
+          '75%': { transform: 'translateX(-3px)' },
+        },
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translateY(4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
       }
     },
   },

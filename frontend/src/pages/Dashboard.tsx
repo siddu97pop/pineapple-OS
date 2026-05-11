@@ -7,8 +7,20 @@ import { VaultTree } from '../components/VaultTree'
 import { VaultEditor, type OpenFile } from '../components/VaultEditor'
 import { AgentMonitor } from '../components/AgentMonitor'
 import { CheckpointQueue } from '../components/CheckpointQueue'
+import { MobileDashboard } from '../components/MobileDashboard'
 import { DotGrid } from '../components/DotGrid'
 import { getVaultFile } from '../lib/api'
+
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 768)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const handler = (e: MediaQueryListEvent) => setMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return mobile
+}
 
 const SIDEBAR_MIN = 280
 const SIDEBAR_MAX = 680
@@ -38,12 +50,18 @@ function loadSidebarTab(): SidebarTab {
 }
 
 export function Dashboard() {
+  const isMobile = useIsMobile()
+  return isMobile ? <MobileDashboard /> : <DesktopDashboard />
+}
+
+function DesktopDashboard() {
   const [tabCount, setTabCount] = useState(1)
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(loadSidebarTab)
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
   const [activeFileIdx, setActiveFileIdx] = useState(0)
   const [pendingCheckpoints, setPendingCheckpoints] = useState(0)
+  const [resizing, setResizing] = useState(false)
 
   const isDraggingRef = useRef(false)
   const dragStartXRef = useRef(0)
@@ -62,6 +80,7 @@ export function Dashboard() {
     isDraggingRef.current = true
     dragStartXRef.current = e.clientX
     dragStartWidthRef.current = sidebarWidth
+    setResizing(true)
     e.preventDefault()
   }, [sidebarWidth])
 
@@ -75,6 +94,7 @@ export function Dashboard() {
     const onMouseUp = () => {
       if (!isDraggingRef.current) return
       isDraggingRef.current = false
+      setResizing(false)
       setSidebarWidth(prev => {
         try { localStorage.setItem(STORAGE_KEY, String(prev)) } catch {}
         return prev
@@ -193,7 +213,10 @@ export function Dashboard() {
         {/* Right sidebar */}
         <div
           className="flex-shrink-0 flex flex-col min-h-0 py-3 pl-1"
-          style={{ width: sidebarWidth }}
+          style={{
+            width: sidebarWidth,
+            transition: resizing ? 'none' : 'width 0.15s ease-out',
+          }}
         >
           {/* Sidebar tab bar */}
           <div className="flex gap-1 mb-2 flex-shrink-0">
@@ -223,7 +246,7 @@ export function Dashboard() {
 
           {/* Sessions panel */}
           {sidebarTab === 'sessions' && (
-            <div className="flex-1 min-h-0 flex flex-col gap-3">
+            <div className="flex-1 min-h-0 flex flex-col gap-3 animate-fade-in">
               <div className="flex-1 min-h-0">
                 <SessionsFeed />
               </div>
@@ -244,7 +267,7 @@ export function Dashboard() {
 
           {/* Files panel */}
           {sidebarTab === 'files' && (
-            <div className="flex-1 min-h-0 flex flex-col gap-3">
+            <div className="flex-1 min-h-0 flex flex-col gap-3 animate-fade-in">
               <div className="h-56 flex-shrink-0">
                 <VaultTree
                   openFilePath={activeFilePath}
@@ -269,7 +292,7 @@ export function Dashboard() {
 
           {/* Agents panel */}
           {sidebarTab === 'agents' && (
-            <div className="flex-1 min-h-0 flex flex-col gap-3">
+            <div className="flex-1 min-h-0 flex flex-col gap-3 animate-fade-in">
               <div className="flex-shrink-0" style={{ maxHeight: '45%', minHeight: 120 }}>
                 <CheckpointQueue
                   className="h-full"
