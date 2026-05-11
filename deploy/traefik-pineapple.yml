@@ -1,0 +1,15 @@
+http:
+  routers:
+    pineapple-api:
+      rule: "Host(`pineapple-api.lexitools.tech`)"
+      entryPoints:
+        - websecure
+      service: pineapple-api-svc
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    pineapple-api-svc:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:3456"

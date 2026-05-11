@@ -1,0 +1,18 @@
+[Unit]
+Description=Pineapple OS API Backend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/pineapple-api
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/pineapple-api/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pineapple-api
+
+[Install]
+WantedBy=multi-user.target
