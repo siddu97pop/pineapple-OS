@@ -6,6 +6,13 @@ import cors from 'cors'
 import jwt from 'jsonwebtoken'
 import { requireAuth, extractAuthToken } from './auth'
 import { handleTerminalConnection } from './terminal'
+import {
+  startTerminalSession,
+  pollTerminalSession,
+  sendTerminalInput,
+  resizeTerminal,
+  stopTerminalSession,
+} from './terminalHttp'
 import { initFileWatcher, addSSEClient } from './fileWatch'
 import { getStatusHandler, getSyncthingHandler } from './status'
 import { getClaudeMdHandler, saveClaudeMdHandler } from './claudeMd'
@@ -41,29 +48,104 @@ app.get('/api/sessions/stream', requireAuth, (req, res) => {
 app.get('/api/claude-md', requireAuth, getClaudeMdHandler)
 app.post('/api/claude-md', requireAuth, saveClaudeMdHandler)
 
-const wss = new WebSocketServer({ noServer: true })
+// HTTP terminal fallback for environments that aggressively drop WebSockets.
+app.post('/api/terminal/start', requireAuth, (_req, res) => {
+  try {
+    const started = startTerminalSession()
+    res.json(started)
+  } catch (err) {
+    const message = (err as Error).message || 'Failed to start terminal session'
+    if (message.includes('Session limit')) {
+      res.status(429).json({ error: message })
+      return
+    }
+    res.status(500).json({ error: message })
+  }
+})
+
+app.get('/api/terminal/poll', requireAuth, (req, res) => {
+  const sessionId = String((req.query as any)?.sessionId || '')
+  const since = Number((req.query as any)?.since || '0')
+  if (!sessionId) {
+    res.status(400).json({ error: 'sessionId is required' })
+    return
+  }
+  res.json(pollTerminalSession(sessionId, since))
+})
+
+app.post('/api/terminal/input', requireAuth, (req, res) => {
+  const { sessionId, data } = req.body || {}
+  if (typeof sessionId !== 'string' || typeof data !== 'string') {
+    res.status(400).json({ error: 'sessionId and data are required' })
+    return
+  }
+  const ok = sendTerminalInput(sessionId, data)
+  if (!ok) {
+    res.status(404).json({ error: 'terminal session not found' })
+    return
+  }
+  res.json({ ok: true })
+})
+
+app.post('/api/terminal/resize', requireAuth, (req, res) => {
+  const { sessionId, cols, rows } = req.body || {}
+  if (typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId is required' })
+    return
+  }
+  const ok = resizeTerminal(sessionId, Number(cols), Number(rows))
+  if (!ok) {
+    res.status(404).json({ error: 'terminal session not found or invalid size' })
+    return
+  }
+  res.json({ ok: true })
+})
+
+app.post('/api/terminal/stop', requireAuth, (req, res) => {
+  const { sessionId } = req.body || {}
+  if (typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId is required' })
+    return
+  }
+  stopTerminalSession(sessionId)
+  res.json({ ok: true })
+})
+
+const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
 
 server.on('upgrade', (request, socket, head) => {
   if (request.url?.startsWith('/terminal')) {
-    // Extract token from query param (WS can't send custom headers)
     let token: string | null = null
     try {
       const urlParams = new URL(request.url, 'http://x').searchParams
       token = urlParams.get('token')
     } catch {}
 
+    // Log JWT header algorithm for debugging
+    if (token) {
+      try {
+        const headerB64 = token.split('.')[0]
+        const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString())
+        console.log('[WS] JWT header:', JSON.stringify(header))
+      } catch {}
+    }
+    console.log('[WS] upgrade attempt, token present:', !!token)
+
     if (!token) {
+      console.log('[WS] rejected: no token')
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()
       return
     }
 
     try {
-      jwt.verify(token, Buffer.from(process.env.SUPABASE_JWT_SECRET!, 'base64'), { algorithms: ['HS256'] })
+      jwt.verify(token, process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n'), { algorithms: ['ES256'] })
+      console.log('[WS] JWT verified OK, upgrading')
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request)
       })
-    } catch {
+    } catch (err) {
+      console.error('[WS] JWT verify failed:', (err as Error).message)
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()
     }

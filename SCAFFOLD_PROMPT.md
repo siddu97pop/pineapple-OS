@@ -9,7 +9,7 @@
 You are building "Pineapple OS" — a personal browser-based master dashboard for VPS-hosted Claude Code development. Build the COMPLETE working codebase. Do not ask questions — all architecture decisions are specified below. Create every file listed in full. Do not summarize, skip, or stub any file.
 
 ## WHAT IT DOES
-1. Browser terminal (xterm.js + WebSocket PTY) that auto-launches `claude` on connect
+1. Browser terminal (xterm.js + WebSocket PTY) that opens a plain `/bin/bash` shell
 2. Live feed of /data/obsidian/logs/sessions.md (SSE-based real-time tail)
 3. Inline CLAUDE.md viewer/editor (read + write via API)
 4. Status bar: live clock, VPS uptime, Syncthing status
@@ -61,8 +61,7 @@ deploy/               (systemd, Traefik config, deploy scripts)
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "uuid": "^9.0.1",
-    "jsonwebtoken": "^9.0.2",
-    "jwks-rsa": "^3.1.0"
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
@@ -107,9 +106,11 @@ SYNCTHING_API_KEY=your_syncthing_api_key_here
 SYNCTHING_URL=http://localhost:8384
 ALLOWED_ORIGINS=https://pineapple.lexitools.tech
 MAX_PTY_SESSIONS=5
-SUPABASE_JWT_SECRET=your_supabase_jwt_secret_here
+SUPABASE_JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
 ```
-Note: SUPABASE_JWT_SECRET is found in Supabase Dashboard → Project Settings → API → JWT Secret.
+Note: Supabase access tokens are ES256-signed. Fetch the public key from:
+`https://<your-project-ref>.supabase.co/auth/v1/.well-known/jwks.json`
+and set it as a PEM string in `SUPABASE_JWT_PUBLIC_KEY`.
 
 ### backend/src/auth.ts
 Implement JWT verification middleware for Supabase.
@@ -119,7 +120,8 @@ Import: express (Request, Response, NextFunction), jsonwebtoken (verify, JwtPayl
 Export function `requireAuth(req: Request, res: Response, next: NextFunction): void`:
 - Extract token from Authorization header: `Bearer <token>` → split on ' '[1]
 - If no token: res.status(401).json({error: 'Unauthorized'}) and return
-- Verify token using `jwt.verify(token, process.env.SUPABASE_JWT_SECRET!, {algorithms: ['HS256']})`
+- Verify token using:
+  `jwt.verify(token, process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n'), { algorithms: ['ES256'] })`
 - On success: attach decoded payload to req as `(req as any).user = decoded`, call next()
 - On error: res.status(401).json({error: 'Invalid token'}) and return
 
@@ -145,7 +147,7 @@ Export function `handleTerminalConnection(ws: WebSocket): void`:
 2. const sessionId = v4()
 3. Spawn PTY:
    ```
-   const pty = spawn('/bin/bash', ['-c', 'claude; exec bash'], {
+   const pty = spawn('/bin/bash', [], {
      name: 'xterm-256color',
      cols: 80,
      rows: 24,
@@ -153,8 +155,11 @@ Export function `handleTerminalConnection(ws: WebSocket): void`:
      env: process.env as Record<string, string>
    })
    ```
-   Note: `bash -c "claude; exec bash"` auto-launches claude, then falls back to bash when claude exits
-4. pty.onData((data) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'output', data})) })
+4. pty.onData((data) => {
+     if (ws.readyState === WebSocket.OPEN) {
+       ws.send(Buffer.from(data, 'binary'), { binary: true })
+     }
+   })
 5. pty.onExit(({exitCode}) => { ws.send(JSON.stringify({type:'exit', code: exitCode})); ws.close(); activeSessions.delete(sessionId) })
 6. ws.on('message', (raw: Buffer) => {
      try {
@@ -279,14 +284,18 @@ Routes (all protected with requireAuth except /health):
 
 WebSocket server:
 ```
-const wss = new WebSocketServer({ noServer: true })
+const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
 
 server.on('upgrade', (request, socket, head) => {
-  if (request.url === '/terminal') {
-    const token = extractAuthToken(request as any)
+  if (request.url?.startsWith('/terminal')) {
+    let token: string | null = null
+    try {
+      const params = new URL(request.url, 'http://x').searchParams
+      token = params.get('token')
+    } catch {}
     if (!token) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return }
     try {
-      jwt.verify(token, process.env.SUPABASE_JWT_SECRET!, {algorithms: ['HS256']})
+      jwt.verify(token, process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n'), { algorithms: ['ES256'] })
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request)
       })

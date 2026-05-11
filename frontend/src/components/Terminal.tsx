@@ -3,7 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { supabase } from '../lib/supabase'
-import { WS_URL } from '../lib/api'
+import { BASE_URL } from '../lib/api'
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
 
@@ -35,58 +35,110 @@ interface TerminalProps {
   className?: string
 }
 
+interface PollResponse {
+  alive: boolean
+  nextSeq: number
+  events: Array<{ seq: number; data: string }>
+}
+
 export function Terminal({ className = '' }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const wsRef = useRef<WebSocket | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
+  const tokenRef = useRef<string>('')
   const reconnectTimerRef = useRef<number>()
   const countdownTimerRef = useRef<number>()
+  const pollTimerRef = useRef<number>()
+  const rafRef = useRef<number>()
+  const inputTimerRef = useRef<number>()
+  const inputBufferRef = useRef('')
+  const isUnmountedRef = useRef(false)
+  const connectRef = useRef<(() => Promise<void>) | null>(null)
+  const sinceSeqRef = useRef(0)
 
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting')
   const [reconnectIn, setReconnectIn] = useState(0)
 
-  const connect = useCallback(async () => {
-    setWsStatus('connecting')
-
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) return
-
-    const ws = new WebSocket(`${WS_URL}/terminal?token=${session.access_token}`)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      setWsStatus('connected')
-      // Send initial size
-      if (fitAddonRef.current && xtermRef.current) {
-        fitAddonRef.current.fit()
-        const { cols, rows } = xtermRef.current
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }))
-      }
-    }
-
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data)
-        if (msg.type === 'output' && xtermRef.current) {
-          xtermRef.current.write(msg.data)
-        }
-      } catch {}
-    }
-
-    ws.onclose = () => {
-      setWsStatus('disconnected')
-      startReconnectCountdown()
-    }
-
-    ws.onerror = () => {
-      ws.close()
-    }
+  const authedFetch = useCallback(async (path: string, options: RequestInit = {}) => {
+    if (!tokenRef.current) throw new Error('Missing auth token')
+    const headers = new Headers(options.headers || {})
+    headers.set('Content-Type', 'application/json')
+    headers.set('Authorization', `Bearer ${tokenRef.current}`)
+    return fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers,
+    })
   }, [])
 
+  const sendResize = useCallback(async () => {
+    const term = xtermRef.current
+    const sessionId = sessionIdRef.current
+    if (!term || !sessionId) return
+    const { cols, rows } = term
+    if (cols < 1 || rows < 1) return
+    try {
+      await authedFetch('/api/terminal/resize', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, cols, rows }),
+      })
+    } catch {}
+  }, [authedFetch])
+
+  const safeFit = useCallback(() => {
+    const container = containerRef.current
+    const term = xtermRef.current
+    const fitAddon = fitAddonRef.current
+    if (!container || !term || !fitAddon) return
+    const { width, height } = container.getBoundingClientRect()
+    if (width < 2 || height < 2) return
+    try {
+      fitAddon.fit()
+      void sendResize()
+    } catch {}
+  }, [sendResize])
+
+  const flushInput = useCallback(async () => {
+    inputTimerRef.current = undefined
+    const payload = inputBufferRef.current
+    const sessionId = sessionIdRef.current
+    if (!payload || !sessionId) return
+    inputBufferRef.current = ''
+    try {
+      await authedFetch('/api/terminal/input', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, data: payload }),
+      })
+    } catch {}
+  }, [authedFetch])
+
+  const queueInput = useCallback((data: string) => {
+    inputBufferRef.current += data
+    if (!inputTimerRef.current) {
+      inputTimerRef.current = window.setTimeout(() => {
+        void flushInput()
+      }, 20)
+    }
+  }, [flushInput])
+
+  const stopSession = useCallback(async () => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    sessionIdRef.current = null
+    sinceSeqRef.current = 0
+    try {
+      await authedFetch('/api/terminal/stop', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId }),
+      })
+    } catch {}
+  }, [authedFetch])
+
   const startReconnectCountdown = useCallback(() => {
+    if (isUnmountedRef.current) return
     clearTimeout(reconnectTimerRef.current)
     clearInterval(countdownTimerRef.current)
+    clearTimeout(pollTimerRef.current)
     setReconnectIn(3)
     let remaining = 3
     countdownTimerRef.current = window.setInterval(() => {
@@ -97,13 +149,74 @@ export function Terminal({ className = '' }: TerminalProps) {
       }
     }, 1000)
     reconnectTimerRef.current = window.setTimeout(() => {
-      connect()
+      void connectRef.current?.()
     }, 3000)
+  }, [])
+
+  const schedulePoll = useCallback((sessionId: string) => {
+    if (isUnmountedRef.current) return
+    clearTimeout(pollTimerRef.current)
+    pollTimerRef.current = window.setTimeout(async () => {
+      try {
+        const resp = await authedFetch(
+          `/api/terminal/poll?sessionId=${encodeURIComponent(sessionId)}&since=${sinceSeqRef.current}`,
+          { method: 'GET' },
+        )
+        if (!resp.ok) throw new Error(`poll failed: ${resp.status}`)
+        const body = await resp.json() as PollResponse
+
+        for (const evt of body.events) {
+          xtermRef.current?.write(evt.data)
+        }
+        sinceSeqRef.current = body.nextSeq
+
+        if (!body.alive) {
+          throw new Error('terminal session ended')
+        }
+        schedulePoll(sessionId)
+      } catch {
+        if (isUnmountedRef.current) return
+        setWsStatus('disconnected')
+        void stopSession()
+        startReconnectCountdown()
+      }
+    }, 120)
+  }, [authedFetch, startReconnectCountdown, stopSession])
+
+  const connect = useCallback(async () => {
+    if (isUnmountedRef.current) return
+    setWsStatus('connecting')
+    clearTimeout(reconnectTimerRef.current)
+    clearInterval(countdownTimerRef.current)
+    clearTimeout(pollTimerRef.current)
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token || isUnmountedRef.current) return
+    tokenRef.current = session.access_token
+
+    try {
+      const startResp = await authedFetch('/api/terminal/start', { method: 'POST' })
+      if (!startResp.ok) throw new Error(`start failed: ${startResp.status}`)
+      const startBody = await startResp.json() as { sessionId: string }
+      sessionIdRef.current = startBody.sessionId
+      sinceSeqRef.current = 0
+      setWsStatus('connected')
+      safeFit()
+      schedulePoll(startBody.sessionId)
+    } catch {
+      if (isUnmountedRef.current) return
+      setWsStatus('disconnected')
+      startReconnectCountdown()
+    }
+  }, [authedFetch, safeFit, schedulePoll, startReconnectCountdown])
+
+  useEffect(() => {
+    connectRef.current = connect
   }, [connect])
 
-  // Init xterm on mount
   useEffect(() => {
     if (!containerRef.current) return
+    isUnmountedRef.current = false
 
     const term = new XTerm({
       theme: XTERM_THEME,
@@ -113,59 +226,57 @@ export function Terminal({ className = '' }: TerminalProps) {
       cursorBlink: true,
       scrollback: 5000,
     })
-
     const fitAddon = new FitAddon()
     const webLinksAddon = new WebLinksAddon()
     term.loadAddon(fitAddon)
     term.loadAddon(webLinksAddon)
     term.open(containerRef.current)
-    fitAddon.fit()
 
     xtermRef.current = term
     fitAddonRef.current = fitAddon
 
-    term.onData((data) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'input', data }))
-      }
+    rafRef.current = window.requestAnimationFrame(() => {
+      safeFit()
     })
 
-    connect()
+    const dataDisposable = term.onData((data) => {
+      queueInput(data)
+    })
+
+    void connect()
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = window.requestAnimationFrame(() => {
+        safeFit()
+      })
+    })
+    resizeObserver.observe(containerRef.current)
 
     let resizeDebounce: number
     const handleResize = () => {
       clearTimeout(resizeDebounce)
       resizeDebounce = window.setTimeout(() => {
-        fitAddon.fit()
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const { cols, rows } = term
-          wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }))
-        }
+        safeFit()
       }, 100)
     }
-
     window.addEventListener('resize', handleResize)
 
     return () => {
-      window.removeEventListener('resize', handleResize)
-      clearTimeout(resizeDebounce)
+      isUnmountedRef.current = true
+      resizeObserver.disconnect()
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (inputTimerRef.current) clearTimeout(inputTimerRef.current)
+      clearTimeout(pollTimerRef.current)
       clearTimeout(reconnectTimerRef.current)
       clearInterval(countdownTimerRef.current)
-      wsRef.current?.close()
+      window.removeEventListener('resize', handleResize)
+      clearTimeout(resizeDebounce)
+      dataDisposable.dispose()
+      void stopSession()
       term.dispose()
     }
-  }, [connect])
-
-  // Reconnect with new token on Supabase token refresh
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'TOKEN_REFRESHED') {
-        wsRef.current?.close()
-        connect()
-      }
-    })
-    return () => subscription.unsubscribe()
-  }, [connect])
+  }, [connect, queueInput, safeFit, stopSession])
 
   return (
     <div className={`relative card overflow-hidden ${className}`}>
@@ -191,7 +302,7 @@ export function Terminal({ className = '' }: TerminalProps) {
               onClick={() => {
                 clearTimeout(reconnectTimerRef.current)
                 clearInterval(countdownTimerRef.current)
-                connect()
+                void connect()
               }}
               className="btn-ghost text-xs border border-navy-600"
             >

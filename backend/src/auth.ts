@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import 'dotenv/config'
 
+const JWT_PUBLIC_KEY = process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n')
+
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const token = extractAuthToken(req)
   if (!token) {
@@ -9,7 +11,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return
   }
   try {
-    const decoded = jwt.verify(token, Buffer.from(process.env.SUPABASE_JWT_SECRET!, 'base64'), { algorithms: ['HS256'] })
+    const decoded = jwt.verify(token, JWT_PUBLIC_KEY, { algorithms: ['ES256'] })
     ;(req as any).user = decoded
     next()
   } catch {
