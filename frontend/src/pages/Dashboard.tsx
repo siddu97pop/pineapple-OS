@@ -3,13 +3,18 @@ import { NavBar } from '../components/NavBar'
 import { WidgetBar } from '../components/WidgetBar'
 import { TerminalTabs } from '../components/TerminalTabs'
 import { SessionsFeed } from '../components/SessionsFeed'
-import { ClaudeMdEditor } from '../components/ClaudeMdEditor'
+import { VaultTree } from '../components/VaultTree'
+import { VaultEditor, type OpenFile } from '../components/VaultEditor'
 import { DotGrid } from '../components/DotGrid'
+import { getVaultFile } from '../lib/api'
 
 const SIDEBAR_MIN = 280
-const SIDEBAR_MAX = 620
-const SIDEBAR_DEFAULT = 360
+const SIDEBAR_MAX = 680
+const SIDEBAR_DEFAULT = 380
 const STORAGE_KEY = 'pineapple-sidebar-width'
+const SIDEBAR_TAB_KEY = 'pineapple-sidebar-tab'
+
+type SidebarTab = 'sessions' | 'files'
 
 function loadSidebarWidth(): number {
   try {
@@ -22,13 +27,34 @@ function loadSidebarWidth(): number {
   return SIDEBAR_DEFAULT
 }
 
+function loadSidebarTab(): SidebarTab {
+  try {
+    const v = localStorage.getItem(SIDEBAR_TAB_KEY)
+    if (v === 'sessions' || v === 'files') return v
+  } catch {}
+  return 'sessions'
+}
+
 export function Dashboard() {
   const [tabCount, setTabCount] = useState(1)
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(loadSidebarTab)
+  const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
+  const [activeFileIdx, setActiveFileIdx] = useState(0)
+
   const isDraggingRef = useRef(false)
   const dragStartXRef = useRef(0)
   const dragStartWidthRef = useRef(0)
+  const openFilesRef = useRef(openFiles)
+  openFilesRef.current = openFiles
 
+  // Persist sidebar tab
+  const switchTab = useCallback((tab: SidebarTab) => {
+    setSidebarTab(tab)
+    try { localStorage.setItem(SIDEBAR_TAB_KEY, tab) } catch {}
+  }, [])
+
+  // Resizer
   const onResizerMouseDown = useCallback((e: React.MouseEvent) => {
     isDraggingRef.current = true
     dragStartXRef.current = e.clientX
@@ -59,6 +85,80 @@ export function Dashboard() {
     }
   }, [])
 
+  // Open a vault file in the editor
+  const handleOpenFile = useCallback(async (relPath: string) => {
+    const existing = openFilesRef.current.findIndex(f => f.path === relPath)
+    if (existing !== -1) {
+      setActiveFileIdx(existing)
+      switchTab('files')
+      return
+    }
+
+    // Add placeholder while loading
+    const label = relPath.split('/').pop() ?? relPath
+    const placeholder: OpenFile = { path: relPath, label, content: '', savedContent: '' }
+    setOpenFiles(prev => {
+      const next = [...prev, placeholder]
+      setActiveFileIdx(next.length - 1)
+      return next
+    })
+    switchTab('files')
+
+    try {
+      const data = await getVaultFile(relPath)
+      setOpenFiles(prev =>
+        prev.map(f => f.path === relPath
+          ? { ...f, content: data.content, savedContent: data.content }
+          : f
+        )
+      )
+    } catch {
+      // Remove placeholder on error
+      setOpenFiles(prev => {
+        const next = prev.filter(f => f.path !== relPath)
+        setActiveFileIdx(i => Math.min(i, Math.max(0, next.length - 1)))
+        return next
+      })
+    }
+  }, [switchTab])
+
+  const handleCloseFile = useCallback((idx: number) => {
+    setOpenFiles(prev => {
+      const next = prev.filter((_, i) => i !== idx)
+      setActiveFileIdx(cur => {
+        if (cur < idx) return cur
+        if (cur > idx) return cur - 1
+        return Math.max(0, idx - 1)
+      })
+      return next
+    })
+  }, [])
+
+  const handleChangeContent = useCallback((idx: number, content: string) => {
+    setOpenFiles(prev => prev.map((f, i) => i === idx ? { ...f, content } : f))
+  }, [])
+
+  const handleSetSaving = useCallback((idx: number) => {
+    setOpenFiles(prev => prev.map((f, i) => i === idx ? { ...f, saving: true, saveError: false } : f))
+  }, [])
+
+  const handleSaveResult = useCallback((idx: number, saved: boolean, error?: boolean) => {
+    setOpenFiles(prev => prev.map((f, i) => {
+      if (i !== idx) return f
+      return saved
+        ? { ...f, savedContent: f.content, saving: false, saveError: false }
+        : { ...f, saving: false, saveError: !!error }
+    }))
+    // Clear error indicator after 3s
+    if (error) {
+      setTimeout(() => {
+        setOpenFiles(prev => prev.map((f, i) => i === idx ? { ...f, saveError: false } : f))
+      }, 3000)
+    }
+  }, [])
+
+  const activeFilePath = openFiles[activeFileIdx]?.path ?? ''
+
   return (
     <div className="h-screen overflow-hidden">
       <DotGrid />
@@ -82,15 +182,72 @@ export function Dashboard() {
 
         {/* Right sidebar */}
         <div
-          className="flex-shrink-0 flex flex-col gap-3 min-h-0 py-3 pl-1"
+          className="flex-shrink-0 flex flex-col min-h-0 py-3 pl-1"
           style={{ width: sidebarWidth }}
         >
-          <div className="flex-1 min-h-0">
-            <SessionsFeed />
+          {/* Sidebar tab bar */}
+          <div className="flex gap-1 mb-2 flex-shrink-0">
+            {(['sessions', 'files'] as SidebarTab[]).map(tab => (
+              <button
+                key={tab}
+                onClick={() => switchTab(tab)}
+                className="px-3 py-1 rounded-md text-xs font-mono capitalize transition-all"
+                style={{
+                  background: sidebarTab === tab ? '#0ea5e920' : 'transparent',
+                  color: sidebarTab === tab ? '#0ea5e9' : '#64748b',
+                  border: `1px solid ${sidebarTab === tab ? '#0ea5e940' : 'transparent'}`,
+                }}
+              >
+                {tab}
+              </button>
+            ))}
           </div>
-          <div className="h-64 flex-shrink-0">
-            <ClaudeMdEditor />
-          </div>
+
+          {/* Sessions panel */}
+          {sidebarTab === 'sessions' && (
+            <div className="flex-1 min-h-0 flex flex-col gap-3">
+              <div className="flex-1 min-h-0">
+                <SessionsFeed />
+              </div>
+              <div className="h-64 flex-shrink-0">
+                <VaultEditor
+                  files={openFiles}
+                  activeIdx={activeFileIdx}
+                  onActivate={setActiveFileIdx}
+                  onClose={handleCloseFile}
+                  onChangeContent={handleChangeContent}
+                  onSetSaving={handleSetSaving}
+                  onSaveResult={handleSaveResult}
+                  onQuickOpen={handleOpenFile}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Files panel */}
+          {sidebarTab === 'files' && (
+            <div className="flex-1 min-h-0 flex flex-col gap-3">
+              <div className="h-56 flex-shrink-0">
+                <VaultTree
+                  openFilePath={activeFilePath}
+                  onOpenFile={handleOpenFile}
+                  className="h-full"
+                />
+              </div>
+              <div className="flex-1 min-h-0">
+                <VaultEditor
+                  files={openFiles}
+                  activeIdx={activeFileIdx}
+                  onActivate={setActiveFileIdx}
+                  onClose={handleCloseFile}
+                  onChangeContent={handleChangeContent}
+                  onSetSaving={handleSetSaving}
+                  onSaveResult={handleSaveResult}
+                  onQuickOpen={handleOpenFile}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

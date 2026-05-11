@@ -68,3 +68,36 @@ export async function saveClaudeMd(content: string): Promise<{ ok: boolean }> {
 export function getSSEUrl(token: string): string {
   return `${BASE_URL}/api/sessions/stream?token=${encodeURIComponent(token)}`
 }
+
+export interface TreeNode {
+  name: string
+  path: string
+  type: 'file' | 'dir'
+  mtime: number
+  children?: TreeNode[]
+}
+
+export interface VaultTreeData {
+  path: string
+  children: TreeNode[]
+}
+
+export async function getVaultTree(relPath = '', depth = 2): Promise<VaultTreeData> {
+  const params = new URLSearchParams({ path: relPath, depth: String(depth) })
+  const r = await authFetch(`/api/vault/tree?${params}`)
+  return r.json()
+}
+
+export async function getVaultFile(relPath: string): Promise<{ path: string; content: string }> {
+  const params = new URLSearchParams({ path: relPath })
+  const r = await authFetch(`/api/vault/file?${params}`)
+  return r.json()
+}
+
+export async function saveVaultFile(relPath: string, content: string): Promise<{ ok: boolean }> {
+  const r = await authFetch('/api/vault/file', {
+    method: 'POST',
+    body: JSON.stringify({ path: relPath, content }),
+  })
+  return r.json()
+}

@@ -17,6 +17,7 @@ import { initFileWatcher, addSSEClient } from './fileWatch'
 import { getStatusHandler, getSyncthingHandler } from './status'
 import { getClaudeMdHandler, saveClaudeMdHandler } from './claudeMd'
 import { getSessionsHandler } from './sessions'
+import { getVaultTreeHandler, getVaultFileHandler, saveVaultFileHandler } from './vault'
 
 const app = express()
 const server = http.createServer(app)
@@ -47,6 +48,10 @@ app.get('/api/sessions/stream', requireAuth, (req, res) => {
 
 app.get('/api/claude-md', requireAuth, getClaudeMdHandler)
 app.post('/api/claude-md', requireAuth, saveClaudeMdHandler)
+
+app.get('/api/vault/tree', requireAuth, getVaultTreeHandler)
+app.get('/api/vault/file', requireAuth, getVaultFileHandler)
+app.post('/api/vault/file', requireAuth, saveVaultFileHandler)
 
 // HTTP terminal fallback for environments that aggressively drop WebSockets.
 app.post('/api/terminal/start', requireAuth, (_req, res) => {
