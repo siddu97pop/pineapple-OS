@@ -1,5 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
+import {
+  ChevronRight, ChevronDown, Folder, FolderOpen,
+  FileText, FileCode2, FileJson, TerminalSquare, File, Loader2,
+} from 'lucide-react'
 import { getVaultTree, type TreeNode } from '../lib/api'
+
+function FileIcon({ name }: { name: string }) {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  if (ext === 'md') return <FileText size={12} className="text-slate-500 flex-shrink-0" />
+  if (ext === 'json') return <FileJson size={12} className="text-slate-500 flex-shrink-0" />
+  if (ext === 'sh' || ext === 'ts' || ext === 'tsx' || ext === 'js') return <FileCode2 size={12} className="text-slate-500 flex-shrink-0" />
+  if (name === 'Procfile' || ext === 'env') return <TerminalSquare size={12} className="text-slate-500 flex-shrink-0" />
+  return <File size={12} className="text-slate-500 flex-shrink-0" />
+}
 
 // Flat map: dirPath → children. '' = vault root.
 type ChildMap = Map<string, TreeNode[]>
@@ -31,23 +44,21 @@ function NodeRow({ node, depth, childMap, expanded, loading, openFilePath, onTog
   const indent = depth * 12
 
   if (node.type === 'file') {
-    const ext = node.name.split('.').pop() ?? ''
-    const icon = ext === 'md' ? '󰍛' : ext === 'json' ? '󰘦' : ext === 'sh' ? '󰆍' : '󰈙'
     return (
       <div
-        className="flex items-center gap-1.5 py-[3px] pr-2 rounded cursor-pointer text-xs transition-colors"
+        className="flex items-center gap-1.5 py-[3px] pr-2 rounded cursor-pointer text-xs transition-colors group"
         style={{ paddingLeft: `${indent + 8}px` }}
         onClick={() => onOpenFile(node.path)}
         title={node.path}
       >
+        <FileIcon name={node.name} />
         <span
-          className={`truncate font-mono ${isActive
+          className={`truncate font-mono transition-colors ${isActive
             ? 'text-electric'
-            : 'text-slate-400 hover:text-slate-200'
+            : 'text-slate-400 group-hover:text-slate-200'
           }`}
           style={isActive ? { textShadow: '0 0 8px rgba(14,165,233,0.4)' } : {}}
         >
-          <span className="mr-1 text-slate-600 not-italic">{icon}</span>
           {node.name}
         </span>
       </div>
@@ -57,20 +68,24 @@ function NodeRow({ node, depth, childMap, expanded, loading, openFilePath, onTog
   // Directory
   const children = childMap.get(node.path)
   const hasKnownChildren = children !== undefined
+  const FolderIcon = isExpanded ? FolderOpen : Folder
 
   return (
     <div>
       <div
-        className="flex items-center gap-1 py-[3px] pr-2 rounded cursor-pointer text-xs text-slate-300 hover:text-slate-100 hover:bg-navy-700/40 transition-colors"
+        className="flex items-center gap-1.5 py-[3px] pr-2 rounded cursor-pointer text-xs text-slate-300 hover:text-slate-100 hover:bg-navy-700/30 transition-colors"
         style={{ paddingLeft: `${indent + 4}px` }}
         onClick={() => onToggle(node)}
       >
-        <span className="w-3 text-slate-600 flex-shrink-0 text-center">
-          {isLoading ? (
-            <span className="inline-block animate-spin">↻</span>
-          ) : isExpanded ? '▾' : '▸'}
+        <span className="w-3 flex-shrink-0 flex items-center justify-center text-slate-600">
+          {isLoading
+            ? <Loader2 size={10} className="animate-spin" />
+            : isExpanded
+              ? <ChevronDown size={10} />
+              : <ChevronRight size={10} />
+          }
         </span>
-        <span className="text-slate-500 mr-0.5">📁</span>
+        <FolderIcon size={12} className="text-slate-500 flex-shrink-0" />
         <span className="truncate font-mono">{node.name}</span>
       </div>
 

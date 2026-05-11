@@ -1,5 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { CheckSquare } from 'lucide-react'
 import { updateCheckpoint, getCheckpointsSSEUrl, type Checkpoint } from '../lib/api'
+
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime()
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
 
 const RISK_STYLES: Record<Checkpoint['risk'], { bg: string; color: string; label: string }> = {
   high:   { bg: '#ef444418', color: '#ef4444', label: 'HIGH' },
@@ -9,7 +20,8 @@ const RISK_STYLES: Record<Checkpoint['risk'], { bg: string; color: string; label
 
 const CONFETTI_COLORS = ['#0ea5e9', '#22c55e', '#f59e0b', '#a78bfa', '#38bdf8', '#4ade80']
 
-function fmtTs(ts: string): string {
+function fmtTs(ts: string, isPending: boolean): string {
+  if (isPending) return timeAgo(ts)
   try {
     return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   } catch { return ts }
@@ -96,7 +108,7 @@ function CheckpointCard({ cp, onDecision, readOnly }: CardProps) {
           {risk.label}
         </span>
         <span className="text-slate-300 font-semibold truncate flex-1">{cp.action}</span>
-        <span className="text-slate-600 flex-shrink-0">{fmtTs(cp.ts)}</span>
+        <span className="text-slate-600 flex-shrink-0">{fmtTs(cp.ts, cp.status === 'pending')}</span>
       </div>
 
       {cp.context && (
@@ -110,7 +122,7 @@ function CheckpointCard({ cp, onDecision, readOnly }: CardProps) {
             <button
               disabled={busy}
               onClick={() => decide('denied')}
-              className="px-2.5 py-1 rounded transition-all"
+              className="px-2.5 py-1 rounded transition-all cursor-pointer"
               style={{
                 background: '#ef444415',
                 color: '#ef4444',
@@ -124,7 +136,7 @@ function CheckpointCard({ cp, onDecision, readOnly }: CardProps) {
               ref={approveRef}
               disabled={busy}
               onClick={() => decide('approved')}
-              className="px-2.5 py-1 rounded transition-all"
+              className="px-2.5 py-1 rounded transition-all cursor-pointer"
               style={{
                 background: '#22c55e15',
                 color: '#22c55e',
@@ -159,8 +171,15 @@ interface Props {
 
 export function CheckpointQueue({ className = '', onPendingCount, readOnly }: Props) {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
+  const [, setTick] = useState(0)
   const prevPendingIdsRef = useRef<Set<string>>(new Set())
   const notifPermRef = useRef<NotificationPermission>('default')
+
+  // Refresh relative timestamps every 30s
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   const pending = checkpoints.filter(c => c.status === 'pending')
 
@@ -230,12 +249,10 @@ export function CheckpointQueue({ className = '', onPendingCount, readOnly }: Pr
   return (
     <div className={`flex flex-col min-h-0 ${className}`}>
       <div className="flex items-center justify-between mb-2 flex-shrink-0">
-        <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">
-          Checkpoints
-        </span>
+        <span className="section-label">Checkpoints</span>
         {pending.length > 0 && (
           <span
-            className="text-xs px-1.5 py-0.5 rounded-full font-mono"
+            className="text-[10px] px-1.5 py-0.5 rounded-full font-mono"
             style={{ background: '#0ea5e920', color: '#0ea5e9', border: '1px solid #0ea5e940' }}
           >
             {pending.length} pending
@@ -243,9 +260,12 @@ export function CheckpointQueue({ className = '', onPendingCount, readOnly }: Pr
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-2">
+      <div className="flex-1 overflow-y-auto space-y-1.5">
         {sorted.length === 0 && (
-          <div className="text-xs text-slate-600 font-mono text-center py-4">no checkpoints</div>
+          <div className="flex flex-col items-center justify-center py-8 gap-2 text-slate-700">
+            <CheckSquare size={22} strokeWidth={1.5} />
+            <span className="text-[11px] font-mono">no checkpoints</span>
+          </div>
         )}
         {sorted.map(cp => (
           <CheckpointCard key={cp.id} cp={cp} onDecision={handleDecision} readOnly={readOnly} />

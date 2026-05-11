@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { X, FileText, GitBranch, BookOpen, ScrollText } from 'lucide-react'
 import { saveVaultFile } from '../lib/api'
 
 export interface OpenFile {
@@ -10,11 +11,11 @@ export interface OpenFile {
   saveError?: boolean
 }
 
-const QUICK_FILES: { label: string; path: string; desc: string }[] = [
-  { label: 'projects.md', path: 'memory/projects.md', desc: 'Project index' },
-  { label: 'decisions.md', path: 'memory/decisions.md', desc: 'Decisions log' },
-  { label: 'context.md', path: '_system/context.md', desc: 'My profile' },
-  { label: 'sessions.md', path: 'logs/sessions.md', desc: 'Session log' },
+const QUICK_FILES: { label: string; path: string; desc: string; Icon: React.ElementType }[] = [
+  { label: 'projects.md', path: 'memory/projects.md', desc: 'Project index', Icon: GitBranch },
+  { label: 'decisions.md', path: 'memory/decisions.md', desc: 'Decisions log', Icon: BookOpen },
+  { label: 'context.md', path: '_system/context.md', desc: 'My profile', Icon: FileText },
+  { label: 'sessions.md', path: 'logs/sessions.md', desc: 'Session log', Icon: ScrollText },
 ]
 
 interface VaultEditorProps {
@@ -81,9 +82,10 @@ export function VaultEditor({
             {QUICK_FILES.map(f => (
               <button
                 key={f.path}
-                className="flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border border-navy-600/60 hover:border-electric/50 hover:bg-electric/5 transition-all text-left"
+                className="flex flex-col items-start gap-1 px-3 py-2.5 rounded-lg border border-navy-600/60 hover:border-electric/50 hover:bg-electric/5 transition-all text-left cursor-pointer group"
                 onClick={() => onQuickOpen(f.path)}
               >
+                <f.Icon size={13} className="text-slate-600 group-hover:text-electric transition-colors" />
                 <span className="text-xs font-mono text-slate-300">{f.label}</span>
                 <span className="text-[10px] text-slate-600">{f.desc}</span>
               </button>
@@ -105,10 +107,11 @@ export function VaultEditor({
           return (
             <div
               key={file.path}
-              className="group flex items-center gap-1 px-2.5 py-1 rounded-t-md cursor-pointer select-none flex-shrink-0 transition-colors"
+              className="group flex items-center gap-1 px-2.5 py-1 rounded-t-md cursor-pointer select-none flex-shrink-0 transition-all duration-150"
               style={{
-                background: isActive ? '#0d1629' : 'transparent',
+                background: isActive ? 'linear-gradient(to bottom, #162040, #0d1629)' : 'transparent',
                 borderBottom: isActive ? '2px solid #0ea5e9' : '2px solid transparent',
+                boxShadow: isActive ? '0 2px 8px rgba(14,165,233,0.15), inset 0 1px 0 rgba(14,165,233,0.06)' : 'none',
                 color: isActive ? '#e2e8f0' : '#64748b',
               }}
               onClick={() => onActivate(idx)}
@@ -125,11 +128,11 @@ export function VaultEditor({
                 </span>
               )}
               <button
-                className="w-3 h-3 rounded flex items-center justify-center text-slate-700 opacity-0 group-hover:opacity-100 hover:text-red-400 text-[10px] leading-none flex-shrink-0"
+                className="w-5 h-5 rounded flex items-center justify-center text-slate-700 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-400/10 flex-shrink-0 transition-all cursor-pointer"
                 onClick={e => { e.stopPropagation(); onClose(idx) }}
                 title="Close"
               >
-                ×
+                <X size={9} strokeWidth={2.5} />
               </button>
             </div>
           )
@@ -139,7 +142,16 @@ export function VaultEditor({
       {/* Path breadcrumb + save button */}
       {activeFile && (
         <div className="flex items-center justify-between px-3 py-1 border-b border-navy-600/30 flex-shrink-0">
-          <span className="text-[10px] text-slate-600 font-mono truncate">{activeFile.path}</span>
+          <span className="text-[10px] font-mono truncate flex items-center gap-1 min-w-0">
+            {activeFile.path.split('/').map((seg, i, arr) => (
+              <span key={i} className="flex items-center gap-1 flex-shrink-0">
+                {i > 0 && <span className="text-slate-700">/</span>}
+                <span className={i === arr.length - 1 ? 'text-slate-400' : 'text-slate-700'}>
+                  {seg}
+                </span>
+              </span>
+            ))}
+          </span>
           <button
             onClick={() => doSave(activeIdx, activeFile)}
             disabled={activeFile.content === activeFile.savedContent || !!activeFile.saving}

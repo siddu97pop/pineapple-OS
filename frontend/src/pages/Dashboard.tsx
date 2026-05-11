@@ -9,6 +9,7 @@ import { AgentMonitor } from '../components/AgentMonitor'
 import { CheckpointQueue } from '../components/CheckpointQueue'
 import { MobileDashboard } from '../components/MobileDashboard'
 import { DotGrid } from '../components/DotGrid'
+import { GripVertical } from 'lucide-react'
 import { getVaultFile } from '../lib/api'
 
 function useIsMobile(): boolean {
@@ -204,10 +205,17 @@ function DesktopDashboard() {
 
         {/* Drag resizer */}
         <div
-          className="w-2 flex-shrink-0 flex items-center justify-center cursor-col-resize group"
+          className="w-4 flex-shrink-0 flex items-center justify-center cursor-col-resize group"
           onMouseDown={onResizerMouseDown}
         >
-          <div className="w-px h-full bg-navy-600/40 group-hover:bg-electric/40 transition-colors" />
+          <div className="flex flex-col items-center h-full relative">
+            <div className="absolute inset-y-0 w-px bg-navy-600/30 group-hover:bg-electric/30 transition-colors left-1/2 -translate-x-1/2" />
+            <GripVertical
+              size={14}
+              className="relative mt-auto mb-auto text-slate-700 group-hover:text-electric/60 transition-colors"
+              strokeWidth={1.5}
+            />
+          </div>
         </div>
 
         {/* Right sidebar */}

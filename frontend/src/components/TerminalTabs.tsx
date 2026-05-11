@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Plus, X } from 'lucide-react'
 import { Terminal } from './Terminal'
 
 interface Tab {
@@ -113,10 +114,15 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
           return (
             <div
               key={tab.id}
-              className="group relative flex items-center gap-1 px-3 py-1 rounded-t-lg cursor-pointer select-none transition-colors"
+              className="group relative flex items-center gap-1 px-3 py-1 rounded-t-lg cursor-pointer select-none transition-all duration-150"
               style={{
-                background: isActive ? '#0d1629' : 'transparent',
+                background: isActive
+                  ? 'linear-gradient(to bottom, #162040, #0d1629)'
+                  : 'transparent',
                 borderBottom: isActive ? '2px solid #0ea5e9' : '2px solid transparent',
+                boxShadow: isActive
+                  ? '0 2px 10px rgba(14,165,233,0.2), inset 0 1px 0 rgba(14,165,233,0.08)'
+                  : 'none',
                 color: isActive ? '#e2e8f0' : '#64748b',
               }}
               onClick={() => { if (editingId !== tab.id) setActiveId(tab.id) }}
@@ -146,11 +152,11 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
               )}
               {tabs.length > 1 && (
                 <button
-                  className="w-3.5 h-3.5 rounded flex items-center justify-center text-slate-600 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-400/10 transition-all flex-shrink-0 text-[10px] leading-none"
+                  className="w-5 h-5 rounded flex items-center justify-center text-slate-600 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-400/10 transition-all flex-shrink-0 cursor-pointer"
                   onClick={e => { e.stopPropagation(); closeTab(tab.id) }}
                   title="Close tab"
                 >
-                  ×
+                  <X size={10} strokeWidth={2.5} />
                 </button>
               )}
             </div>
@@ -159,11 +165,11 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
 
         {tabs.length < MAX_TABS && (
           <button
-            className="flex items-center justify-center w-6 h-6 mb-0.5 rounded text-slate-600 hover:text-slate-300 hover:bg-navy-700 transition-all text-sm leading-none self-center"
+            className="flex items-center justify-center w-6 h-6 mb-0.5 rounded text-slate-600 hover:text-slate-300 hover:bg-navy-700 transition-all self-center cursor-pointer"
             onClick={addTab}
             title="New tab (Ctrl+Shift+T)"
           >
-            +
+            <Plus size={13} strokeWidth={2} />
           </button>
         )}
 
