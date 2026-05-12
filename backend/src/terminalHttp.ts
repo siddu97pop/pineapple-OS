@@ -7,6 +7,8 @@ const OBSIDIAN_PATH = process.env.CLAUDE_MD_PATH
   ? path.dirname(process.env.CLAUDE_MD_PATH)
   : '/data/obsidian'
 const MAX_BUFFERED_CHUNKS = 2000
+// Kill sessions with no poll or input activity for this long (ms).
+const SESSION_IDLE_TIMEOUT_MS = parseInt(process.env.SESSION_IDLE_TIMEOUT_MS || String(10 * 60 * 1000))
 
 interface OutputChunk {
   seq: number
@@ -20,6 +22,7 @@ interface TerminalSession {
   nextSeq: number
   alive: boolean
   waiters: Set<PollWaiter>
+  lastActivityAt: number
 }
 
 interface PollWaiter {
@@ -35,6 +38,18 @@ interface PollResult {
 }
 
 const sessions = new Map<string, TerminalSession>()
+
+// Periodically reap sessions that have had no poll or input activity.
+setInterval(() => {
+  const now = Date.now()
+  for (const [id, session] of sessions) {
+    if (!session.alive) continue
+    if (now - session.lastActivityAt > SESSION_IDLE_TIMEOUT_MS) {
+      console.log('[HTTP-PTY] idle reap', { sessionId: id, idleMs: now - session.lastActivityAt })
+      stopTerminalSession(id)
+    }
+  }
+}, 60_000).unref()
 
 function trimChunks(session: TerminalSession): void {
   if (session.chunks.length > MAX_BUFFERED_CHUNKS) {
@@ -90,6 +105,7 @@ export function startTerminalSession(): { sessionId: string } {
     nextSeq: 1,
     alive: true,
     waiters: new Set(),
+    lastActivityAt: Date.now(),
   }
 
   console.log('[HTTP-PTY] started', {
@@ -138,6 +154,7 @@ export async function pollTerminalSession(
     return { alive: false, nextSeq: since, events: [] }
   }
 
+  session.lastActivityAt = Date.now()
   const immediate = getPollResult(session, since)
   if (immediate.events.length > 0 || !immediate.alive || waitMs <= 0) {
     return immediate
@@ -168,6 +185,7 @@ export async function pollTerminalSession(
 export function sendTerminalInput(sessionId: string, data: string): boolean {
   const session = sessions.get(sessionId)
   if (!session || !session.alive) return false
+  session.lastActivityAt = Date.now()
   session.pty.write(data)
   return true
 }
