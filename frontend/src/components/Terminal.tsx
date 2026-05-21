@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { supabase } from '../lib/supabase'
-import { BASE_URL } from '../lib/api'
+import { WS_URL } from '../lib/api'
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
 
@@ -36,60 +37,28 @@ interface TerminalProps {
   isActive?: boolean
 }
 
-interface PollResponse {
-  alive: boolean
-  nextSeq: number
-  events: Array<{ seq: number; data: string }>
-}
-
 export function Terminal({ className = '', isActive = true }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const sessionIdRef = useRef<string | null>(null)
-  const tokenRef = useRef<string>('')
+  const wsRef = useRef<WebSocket | null>(null)
+  const isUnmountedRef = useRef(false)
   const reconnectTimerRef = useRef<number>()
   const countdownTimerRef = useRef<number>()
-  const pollAbortRef = useRef<AbortController | null>(null)
   const rafRef = useRef<number>()
-  const inputTimerRef = useRef<number>()
-  const inputBufferRef = useRef('')
-  const isUnmountedRef = useRef(false)
   const connectRef = useRef<(() => Promise<void>) | null>(null)
-  const sinceSeqRef = useRef(0)
 
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting')
   const [reconnectIn, setReconnectIn] = useState(0)
 
-  const stopPolling = useCallback(() => {
-    pollAbortRef.current?.abort()
-    pollAbortRef.current = null
-  }, [])
-
-  const authedFetch = useCallback(async (path: string, options: RequestInit = {}) => {
-    if (!tokenRef.current) throw new Error('Missing auth token')
-    const headers = new Headers(options.headers || {})
-    headers.set('Content-Type', 'application/json')
-    headers.set('Authorization', `Bearer ${tokenRef.current}`)
-    return fetch(`${BASE_URL}${path}`, {
-      ...options,
-      headers,
-    })
-  }, [])
-
-  const sendResize = useCallback(async () => {
+  const sendResize = useCallback(() => {
+    const ws = wsRef.current
     const term = xtermRef.current
-    const sessionId = sessionIdRef.current
-    if (!term || !sessionId) return
+    if (!ws || ws.readyState !== WebSocket.OPEN || !term) return
     const { cols, rows } = term
     if (cols < 1 || rows < 1) return
-    try {
-      await authedFetch('/api/terminal/resize', {
-        method: 'POST',
-        body: JSON.stringify({ sessionId, cols, rows }),
-      })
-    } catch {}
-  }, [authedFetch])
+    ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+  }, [])
 
   const safeFit = useCallback(() => {
     const container = containerRef.current
@@ -100,139 +69,79 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     if (width < 2 || height < 2) return
     try {
       fitAddon.fit()
-      void sendResize()
+      sendResize()
     } catch {}
   }, [sendResize])
 
-  const flushInput = useCallback(async () => {
-    inputTimerRef.current = undefined
-    const payload = inputBufferRef.current
-    const sessionId = sessionIdRef.current
-    if (!payload || !sessionId) return
-    inputBufferRef.current = ''
-    try {
-      await authedFetch('/api/terminal/input', {
-        method: 'POST',
-        body: JSON.stringify({ sessionId, data: payload }),
-      })
-    } catch {}
-  }, [authedFetch])
-
-  const queueInput = useCallback((data: string) => {
-    inputBufferRef.current += data
-    if (data.includes('\r')) {
-      if (inputTimerRef.current) {
-        clearTimeout(inputTimerRef.current)
-        inputTimerRef.current = undefined
-      }
-      void flushInput()
-      return
-    }
-    if (!inputTimerRef.current) {
-      inputTimerRef.current = window.setTimeout(() => {
-        void flushInput()
-      }, 8)
-    }
-  }, [flushInput])
-
-  const stopSession = useCallback(async () => {
-    const sessionId = sessionIdRef.current
-    if (!sessionId) return
-    stopPolling()
-    sessionIdRef.current = null
-    sinceSeqRef.current = 0
-    try {
-      await authedFetch('/api/terminal/stop', {
-        method: 'POST',
-        body: JSON.stringify({ sessionId }),
-      })
-    } catch {}
-  }, [authedFetch, stopPolling])
+  const disconnect = useCallback(() => {
+    const ws = wsRef.current
+    if (!ws) return
+    ws.onopen = null
+    ws.onmessage = null
+    ws.onclose = null
+    ws.onerror = null
+    ws.close()
+    wsRef.current = null
+  }, [])
 
   const startReconnectCountdown = useCallback(() => {
     if (isUnmountedRef.current) return
     clearTimeout(reconnectTimerRef.current)
     clearInterval(countdownTimerRef.current)
-    stopPolling()
     setReconnectIn(3)
     let remaining = 3
     countdownTimerRef.current = window.setInterval(() => {
       remaining -= 1
       setReconnectIn(remaining)
-      if (remaining <= 0) {
-        clearInterval(countdownTimerRef.current)
-      }
+      if (remaining <= 0) clearInterval(countdownTimerRef.current)
     }, 1000)
     reconnectTimerRef.current = window.setTimeout(() => {
       void connectRef.current?.()
     }, 3000)
-  }, [stopPolling])
-
-  const runPollLoop = useCallback(async (sessionId: string) => {
-    if (isUnmountedRef.current) return
-    stopPolling()
-    const controller = new AbortController()
-    pollAbortRef.current = controller
-
-    while (!isUnmountedRef.current && sessionIdRef.current === sessionId) {
-      try {
-        const resp = await authedFetch(
-          `/api/terminal/poll?sessionId=${encodeURIComponent(sessionId)}&since=${sinceSeqRef.current}&waitMs=25000`,
-          { method: 'GET', signal: controller.signal },
-        )
-        if (!resp.ok) throw new Error(`poll failed: ${resp.status}`)
-        const body = await resp.json() as PollResponse
-
-        for (const evt of body.events) {
-          xtermRef.current?.write(evt.data)
-        }
-        sinceSeqRef.current = body.nextSeq
-
-        if (!body.alive) {
-          throw new Error('terminal session ended')
-        }
-      } catch {
-        if (controller.signal.aborted || isUnmountedRef.current || sessionIdRef.current !== sessionId) return
-        setWsStatus('disconnected')
-        await stopSession()
-        startReconnectCountdown()
-        return
-      }
-    }
-  }, [authedFetch, startReconnectCountdown, stopPolling, stopSession])
+  }, [])
 
   const connect = useCallback(async () => {
     if (isUnmountedRef.current) return
     setWsStatus('connecting')
     clearTimeout(reconnectTimerRef.current)
     clearInterval(countdownTimerRef.current)
-    stopPolling()
+    disconnect()
 
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token || isUnmountedRef.current) return
-    tokenRef.current = session.access_token
 
-    try {
-      const startResp = await authedFetch('/api/terminal/start', { method: 'POST' })
-      if (!startResp.ok) throw new Error(`start failed: ${startResp.status}`)
-      const startBody = await startResp.json() as { sessionId: string }
-      sessionIdRef.current = startBody.sessionId
-      sinceSeqRef.current = 0
+    const ws = new WebSocket(
+      `${WS_URL}/terminal?token=${encodeURIComponent(session.access_token)}`,
+    )
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      if (isUnmountedRef.current) { ws.close(); return }
       setWsStatus('connected')
       safeFit()
-      void runPollLoop(startBody.sessionId)
-    } catch {
+    }
+
+    ws.onmessage = (event) => {
+      xtermRef.current?.write(event.data as string)
+    }
+
+    ws.onclose = () => {
       if (isUnmountedRef.current) return
+      wsRef.current = null
       setWsStatus('disconnected')
       startReconnectCountdown()
     }
-  }, [authedFetch, runPollLoop, safeFit, startReconnectCountdown, stopPolling])
+
+    ws.onerror = () => {
+      // onclose fires immediately after onerror — handled there
+    }
+  }, [disconnect, safeFit, startReconnectCountdown])
 
   useEffect(() => {
     connectRef.current = connect
   }, [connect])
 
-  // Re-fit when this tab becomes visible after being hidden.
+  // Re-fit when this tab becomes active after being hidden.
   useEffect(() => {
     if (isActive) {
       const id = window.requestAnimationFrame(() => safeFit())
@@ -254,37 +163,42 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     })
     const fitAddon = new FitAddon()
     const webLinksAddon = new WebLinksAddon()
+
     term.loadAddon(fitAddon)
     term.loadAddon(webLinksAddon)
     term.open(containerRef.current)
 
+    // WebGL renderer — falls back to canvas silently if unavailable.
+    try {
+      const webglAddon = new WebglAddon()
+      webglAddon.onContextLoss(() => webglAddon.dispose())
+      term.loadAddon(webglAddon)
+    } catch {}
+
     xtermRef.current = term
     fitAddonRef.current = fitAddon
 
-    rafRef.current = window.requestAnimationFrame(() => {
-      safeFit()
-    })
+    rafRef.current = window.requestAnimationFrame(() => safeFit())
 
     const dataDisposable = term.onData((data) => {
-      queueInput(data)
+      const ws = wsRef.current
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data }))
+      }
     })
 
     void connect()
 
     const resizeObserver = new ResizeObserver(() => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      rafRef.current = window.requestAnimationFrame(() => {
-        safeFit()
-      })
+      rafRef.current = window.requestAnimationFrame(() => safeFit())
     })
     resizeObserver.observe(containerRef.current)
 
     let resizeDebounce: number
     const handleResize = () => {
       clearTimeout(resizeDebounce)
-      resizeDebounce = window.setTimeout(() => {
-        safeFit()
-      }, 100)
+      resizeDebounce = window.setTimeout(() => safeFit(), 100)
     }
     window.addEventListener('resize', handleResize)
 
@@ -292,17 +206,15 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       isUnmountedRef.current = true
       resizeObserver.disconnect()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      if (inputTimerRef.current) clearTimeout(inputTimerRef.current)
-      stopPolling()
       clearTimeout(reconnectTimerRef.current)
       clearInterval(countdownTimerRef.current)
       window.removeEventListener('resize', handleResize)
       clearTimeout(resizeDebounce)
       dataDisposable.dispose()
-      void stopSession()
+      disconnect()
       term.dispose()
     }
-  }, [connect, queueInput, safeFit, stopPolling, stopSession])
+  }, [connect, disconnect, safeFit])
 
   return (
     <div className={`relative card overflow-hidden ${className}`}>
