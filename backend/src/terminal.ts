@@ -4,7 +4,11 @@ import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
 
 const MAX_PTY_SESSIONS = parseInt(process.env.MAX_PTY_SESSIONS || '5')
-const SUPPRESS_PTY_OUTPUT = process.env.SUPPRESS_PTY_OUTPUT === '1'
+// Traefik v3 closes connections it reads no client data from for 60s
+// (entrypoint readTimeout default) — the cause of the 1006 closures that
+// forced the May 21 revert to HTTP polling. Server pings make the browser
+// reply with pongs, which reset the proxy's read timer.
+const WS_PING_INTERVAL_MS = 30_000
 const OBSIDIAN_PATH = process.env.CLAUDE_MD_PATH
   ? path.dirname(process.env.CLAUDE_MD_PATH)
   : '/data/obsidian'
@@ -36,9 +40,11 @@ export function handleTerminalConnection(ws: WebSocket): void {
 
   console.log('[PTY] spawned', { sessionId, cwd: OBSIDIAN_PATH })
 
-  // Debug switch: suppress PTY output to isolate client-side WS teardown causes.
+  const pingTimer = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.ping()
+  }, WS_PING_INTERVAL_MS)
+
   pty.onData((data) => {
-    if (SUPPRESS_PTY_OUTPUT) return
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(data, (err) => {
         if (err) console.error('[PTY] send error:', err.message)
@@ -48,6 +54,7 @@ export function handleTerminalConnection(ws: WebSocket): void {
 
   pty.onExit(({ exitCode, signal }) => {
     console.log('[PTY] exit', { exitCode, signal, sessionId })
+    clearInterval(pingTimer)
     ws.close()
     activeSessions.delete(sessionId)
   })
@@ -67,12 +74,14 @@ export function handleTerminalConnection(ws: WebSocket): void {
   ws.on('close', (code, reasonBuf) => {
     const reason = reasonBuf?.toString() || ''
     console.log('[WS] close', { code, reason, sessionId })
+    clearInterval(pingTimer)
     try { pty.kill('SIGHUP') } catch {}
     activeSessions.delete(sessionId)
   })
 
   ws.on('error', (err) => {
     console.error('[WS] error:', err.message)
+    clearInterval(pingTimer)
     try { pty.kill('SIGHUP') } catch {}
     activeSessions.delete(sessionId)
   })

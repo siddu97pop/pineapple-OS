@@ -4,9 +4,12 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { supabase } from '../lib/supabase'
-import { BASE_URL } from '../lib/api'
+import { BASE_URL, WS_URL } from '../lib/api'
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
+type Transport = 'ws' | 'http'
+
+const WS_CONNECT_TIMEOUT_MS = 4000
 
 const XTERM_THEME = {
   background: '#0a0f1e',
@@ -47,14 +50,16 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const transportRef = useRef<Transport>('ws')
+  const wsRef = useRef<WebSocket | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const tokenRef = useRef<string>('')
   const reconnectTimerRef = useRef<number>()
   const countdownTimerRef = useRef<number>()
   const pollAbortRef = useRef<AbortController | null>(null)
   const rafRef = useRef<number>()
-  const inputTimerRef = useRef<number>()
   const inputBufferRef = useRef('')
+  const inputInFlightRef = useRef(false)
   const isUnmountedRef = useRef(false)
   const connectRef = useRef<(() => Promise<void>) | null>(null)
   const sinceSeqRef = useRef(0)
@@ -65,6 +70,17 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
   const stopPolling = useCallback(() => {
     pollAbortRef.current?.abort()
     pollAbortRef.current = null
+  }, [])
+
+  const disconnectWs = useCallback(() => {
+    const ws = wsRef.current
+    if (!ws) return
+    ws.onopen = null
+    ws.onmessage = null
+    ws.onclose = null
+    ws.onerror = null
+    ws.close()
+    wsRef.current = null
   }, [])
 
   const authedFetch = useCallback(async (path: string, options: RequestInit = {}) => {
@@ -80,10 +96,18 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
 
   const sendResize = useCallback(async () => {
     const term = xtermRef.current
-    const sessionId = sessionIdRef.current
-    if (!term || !sessionId) return
+    if (!term) return
     const { cols, rows } = term
     if (cols < 1 || rows < 1) return
+
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+      return
+    }
+
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
     try {
       await authedFetch('/api/terminal/resize', {
         method: 'POST',
@@ -105,30 +129,36 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     } catch {}
   }, [sendResize])
 
+  // HTTP fallback input: serialize POSTs so fast keystrokes can't be
+  // delivered out of order by overlapping requests.
   const flushInput = useCallback(async () => {
-    inputTimerRef.current = undefined
-    const payload = inputBufferRef.current
+    if (inputInFlightRef.current) return
     const sessionId = sessionIdRef.current
-    if (!payload || !sessionId) return
+    if (!sessionId || !inputBufferRef.current) return
+    const payload = inputBufferRef.current
     inputBufferRef.current = ''
+    inputInFlightRef.current = true
     try {
       await authedFetch('/api/terminal/input', {
         method: 'POST',
         body: JSON.stringify({ sessionId, data: payload }),
       })
     } catch {}
+    inputInFlightRef.current = false
+    if (inputBufferRef.current) void flushInput()
   }, [authedFetch])
 
-  const queueInput = useCallback((data: string) => {
-    inputBufferRef.current += data
-    if (inputTimerRef.current) {
-      clearTimeout(inputTimerRef.current)
-      inputTimerRef.current = undefined
+  const sendInput = useCallback((data: string) => {
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data }))
+      return
     }
+    inputBufferRef.current += data
     void flushInput()
   }, [flushInput])
 
-  const stopSession = useCallback(async () => {
+  const stopHttpSession = useCallback(async () => {
     const sessionId = sessionIdRef.current
     if (!sessionId) return
     stopPolling()
@@ -161,6 +191,66 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     }, 3000)
   }, [stopPolling])
 
+  // Primary transport: WebSocket. Resolves true once the socket is open,
+  // false if it fails to open within the timeout (caller falls back to HTTP).
+  const tryWebSocket = useCallback((token: string) => {
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+      let ws: WebSocket
+      try {
+        ws = new WebSocket(`${WS_URL}/terminal?token=${encodeURIComponent(token)}`)
+      } catch {
+        resolve(false)
+        return
+      }
+
+      const failTimer = window.setTimeout(() => {
+        if (settled) return
+        settled = true
+        ws.onclose = null
+        ws.close()
+        resolve(false)
+      }, WS_CONNECT_TIMEOUT_MS)
+
+      ws.onopen = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(failTimer)
+        if (isUnmountedRef.current) {
+          ws.close()
+          resolve(false)
+          return
+        }
+        wsRef.current = ws
+        transportRef.current = 'ws'
+        setWsStatus('connected')
+        safeFit()
+        resolve(true)
+      }
+
+      ws.onmessage = (event) => {
+        xtermRef.current?.write(event.data as string)
+      }
+
+      ws.onclose = () => {
+        if (!settled) {
+          settled = true
+          clearTimeout(failTimer)
+          resolve(false)
+          return
+        }
+        if (isUnmountedRef.current || wsRef.current !== ws) return
+        wsRef.current = null
+        setWsStatus('disconnected')
+        startReconnectCountdown()
+      }
+
+      ws.onerror = () => {
+        // onclose fires after onerror — handled there
+      }
+    })
+  }, [safeFit, startReconnectCountdown])
+
   const runPollLoop = useCallback(async (sessionId: string) => {
     if (isUnmountedRef.current) return
     stopPolling()
@@ -187,30 +277,22 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       } catch {
         if (controller.signal.aborted || isUnmountedRef.current || sessionIdRef.current !== sessionId) return
         setWsStatus('disconnected')
-        await stopSession()
+        await stopHttpSession()
         startReconnectCountdown()
         return
       }
     }
-  }, [authedFetch, startReconnectCountdown, stopPolling, stopSession])
+  }, [authedFetch, startReconnectCountdown, stopPolling, stopHttpSession])
 
-  const connect = useCallback(async () => {
-    if (isUnmountedRef.current) return
-    setWsStatus('connecting')
-    clearTimeout(reconnectTimerRef.current)
-    clearInterval(countdownTimerRef.current)
-    stopPolling()
-
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token || isUnmountedRef.current) return
-    tokenRef.current = session.access_token
-
+  // Fallback transport: HTTP long-polling (for networks that drop WebSockets).
+  const startHttpSession = useCallback(async () => {
     try {
       const startResp = await authedFetch('/api/terminal/start', { method: 'POST' })
       if (!startResp.ok) throw new Error(`start failed: ${startResp.status}`)
       const startBody = await startResp.json() as { sessionId: string }
       sessionIdRef.current = startBody.sessionId
       sinceSeqRef.current = 0
+      transportRef.current = 'http'
       setWsStatus('connected')
       safeFit()
       void runPollLoop(startBody.sessionId)
@@ -219,7 +301,24 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       setWsStatus('disconnected')
       startReconnectCountdown()
     }
-  }, [authedFetch, runPollLoop, safeFit, startReconnectCountdown, stopPolling])
+  }, [authedFetch, runPollLoop, safeFit, startReconnectCountdown])
+
+  const connect = useCallback(async () => {
+    if (isUnmountedRef.current) return
+    setWsStatus('connecting')
+    clearTimeout(reconnectTimerRef.current)
+    clearInterval(countdownTimerRef.current)
+    stopPolling()
+    disconnectWs()
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token || isUnmountedRef.current) return
+    tokenRef.current = session.access_token
+
+    const wsConnected = await tryWebSocket(session.access_token)
+    if (wsConnected || isUnmountedRef.current) return
+    await startHttpSession()
+  }, [disconnectWs, startHttpSession, stopPolling, tryWebSocket])
 
   useEffect(() => {
     connectRef.current = connect
@@ -265,7 +364,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     })
 
     const dataDisposable = term.onData((data) => {
-      queueInput(data)
+      sendInput(data)
     })
 
     void connect()
@@ -291,17 +390,17 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       isUnmountedRef.current = true
       resizeObserver.disconnect()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      if (inputTimerRef.current) clearTimeout(inputTimerRef.current)
       stopPolling()
       clearTimeout(reconnectTimerRef.current)
       clearInterval(countdownTimerRef.current)
       window.removeEventListener('resize', handleResize)
       clearTimeout(resizeDebounce)
       dataDisposable.dispose()
-      void stopSession()
+      disconnectWs()
+      void stopHttpSession()
       term.dispose()
     }
-  }, [connect, queueInput, safeFit, stopPolling, stopSession])
+  }, [connect, disconnectWs, safeFit, sendInput, stopPolling, stopHttpSession])
 
   return (
     <div className={`relative card overflow-hidden ${className}`}>
