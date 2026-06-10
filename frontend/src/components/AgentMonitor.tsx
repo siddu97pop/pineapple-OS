@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Cpu } from 'lucide-react'
-import { getAgents, killAgent, type AgentProcess } from '../lib/api'
+import { getAgents, killAgent, type AgentGroup } from '../lib/api'
 
 function SkeletonCard() {
   return (
@@ -28,7 +28,7 @@ function fmtRuntime(secs: number): string {
 }
 
 interface AgentCardProps {
-  agent: AgentProcess
+  agent: AgentGroup
   onKill: (pid: number) => Promise<void>
   readOnly?: boolean
 }
@@ -36,6 +36,7 @@ interface AgentCardProps {
 function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
   const [confirming, setConfirming] = useState(false)
   const [killing, setKilling] = useState(false)
+  const [expanded, setExpanded] = useState(false)
 
   const handleKill = async () => {
     if (!confirming) { setConfirming(true); return }
@@ -65,6 +66,20 @@ function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
             }}
           />
           <span className="text-slate-200 truncate font-semibold">{agent.name}</span>
+          {agent.procCount > 1 && (
+            <button
+              onClick={() => setExpanded(e => !e)}
+              className="flex-shrink-0 px-1.5 py-px rounded text-[9px] cursor-pointer transition-colors"
+              style={{
+                color: '#64748b',
+                background: 'rgba(30,41,59,0.5)',
+                border: '1px solid rgba(30,41,59,0.8)',
+              }}
+              title={expanded ? 'hide helper processes' : 'show helper processes'}
+            >
+              +{agent.procCount - 1} proc{agent.procCount - 1 !== 1 ? 's' : ''}
+            </button>
+          )}
         </div>
         {!readOnly && (
           <button
@@ -88,7 +103,7 @@ function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
           {agent.project}
         </span>
         <span className="mx-2 text-slate-800">·</span>
-        <span className="text-slate-500 tabular-nums">{agent.memMb} MB</span>
+        <span className="text-slate-500 tabular-nums">{agent.totalMemMb} MB</span>
         {agent.cpuPercent > 0 && (
           <>
             <span className="mx-1.5 text-slate-800">·</span>
@@ -97,12 +112,25 @@ function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
         )}
         <span className="ml-auto text-slate-600 tabular-nums">{fmtRuntime(agent.runtimeSecs)}</span>
       </div>
+
+      {/* Helper processes (MCP servers, wrappers, shells under this agent) */}
+      {expanded && agent.children.length > 0 && (
+        <div className="mt-2 pt-2 space-y-1" style={{ borderTop: '1px solid rgba(30,41,59,0.6)' }}>
+          {agent.children.map(child => (
+            <div key={child.pid} className="flex items-center text-[10px]" title={child.cmdline}>
+              <span className="text-slate-700 mr-1.5">└</span>
+              <span className="text-slate-500 truncate">{child.name}</span>
+              <span className="ml-auto text-slate-600 tabular-nums">{child.memMb} MB</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
 export function AgentMonitor({ className = '', readOnly }: { className?: string; readOnly?: boolean }) {
-  const [agents, setAgents] = useState<AgentProcess[]>([])
+  const [agents, setAgents] = useState<AgentGroup[]>([])
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
@@ -124,13 +152,15 @@ export function AgentMonitor({ className = '', readOnly }: { className?: string;
     await refresh()
   }, [refresh])
 
+  const totalProcs = agents.reduce((s, a) => s + a.procCount, 0)
+
   return (
     <div className={`flex flex-col min-h-0 ${className}`}>
       <div className="flex items-center justify-between mb-2 flex-shrink-0">
         <span className="section-label">Agents</span>
         {!loading && agents.length > 0 && (
           <span className="text-[10px] text-slate-600 font-mono">
-            {agents.length} process{agents.length !== 1 ? 'es' : ''}
+            {agents.length} agent{agents.length !== 1 ? 's' : ''} · {totalProcs} proc{totalProcs !== 1 ? 's' : ''}
           </span>
         )}
       </div>

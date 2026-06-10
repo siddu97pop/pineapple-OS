@@ -114,6 +114,12 @@ export interface AgentProcess {
   runtimeSecs: number
 }
 
+export interface AgentGroup extends AgentProcess {
+  procCount: number
+  totalMemMb: number
+  children: AgentProcess[]
+}
+
 export interface Checkpoint {
   id: string
   ts: string
@@ -124,7 +130,7 @@ export interface Checkpoint {
   status: 'pending' | 'approved' | 'denied'
 }
 
-export async function getAgents(): Promise<AgentProcess[]> {
+export async function getAgents(): Promise<AgentGroup[]> {
   const r = await authFetch('/api/agents')
   return r.json()
 }
