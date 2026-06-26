@@ -73,9 +73,9 @@ export function VaultEditor({
               className="group flex items-center gap-1 px-2.5 py-1 rounded-t-md cursor-pointer select-none flex-shrink-0 transition-all duration-150"
               style={{
                 background: isActive ? 'linear-gradient(to bottom, #162040, #0d1629)' : 'transparent',
-                borderBottom: isActive ? '2px solid #0ea5e9' : '2px solid transparent',
-                boxShadow: isActive ? '0 2px 8px rgba(14,165,233,0.15), inset 0 1px 0 rgba(14,165,233,0.06)' : 'none',
-                color: isActive ? '#e2e8f0' : '#64748b',
+                borderBottom: isActive ? '2px solid rgb(var(--c-accent))' : '2px solid transparent',
+                boxShadow: isActive ? '0 2px 8px rgb(var(--c-accent) / 0.15), inset 0 1px 0 rgb(var(--c-accent) / 0.06)' : 'none',
+                color: isActive ? '#e2e8f0' : 'rgb(var(--c-faint))',
               }}
               onClick={() => onActivate(idx)}
             >

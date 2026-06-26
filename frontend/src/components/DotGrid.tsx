@@ -2,7 +2,7 @@ export function DotGrid() {
   return (
     <div
       className="fixed inset-0 -z-10 pointer-events-none"
-      style={{ background: 'radial-gradient(ellipse 80% 60% at 50% 0%, #0d1a2e 0%, #06090f 100%)' }}
+      style={{ background: 'radial-gradient(ellipse 80% 60% at 50% 0%, rgb(var(--c-surface2)) 0%, rgb(var(--c-base)) 100%)' }}
     >
       <div
         className="absolute inset-0"

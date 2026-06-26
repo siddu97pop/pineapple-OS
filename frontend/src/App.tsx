@@ -7,7 +7,7 @@ import './styles/globals.css'
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0f1e' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'rgb(var(--c-base))' }}>
       <div className="w-8 h-8 rounded-full border-4 border-electric border-t-transparent animate-spin" />
     </div>
   )
@@ -18,7 +18,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0f1e' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'rgb(var(--c-base))' }}>
       <div className="w-8 h-8 rounded-full border-4 border-electric border-t-transparent animate-spin" />
     </div>
   )

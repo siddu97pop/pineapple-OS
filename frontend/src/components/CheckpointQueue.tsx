@@ -13,12 +13,12 @@ function timeAgo(ts: string): string {
 }
 
 const RISK_STYLES: Record<Checkpoint['risk'], { bg: string; color: string; label: string }> = {
-  high:   { bg: '#ef444418', color: '#ef4444', label: 'HIGH' },
-  medium: { bg: '#f59e0b18', color: '#f59e0b', label: 'MED' },
-  low:    { bg: '#22c55e18', color: '#22c55e', label: 'LOW' },
+  high:   { bg: 'rgb(var(--c-error) / 0.09)', color: 'rgb(var(--c-error))', label: 'HIGH' },
+  medium: { bg: 'rgb(var(--c-warning) / 0.09)', color: 'rgb(var(--c-warning))', label: 'MED' },
+  low:    { bg: 'rgb(var(--c-success) / 0.09)', color: 'rgb(var(--c-success))', label: 'LOW' },
 }
 
-const CONFETTI_COLORS = ['#0ea5e9', '#22c55e', '#f59e0b', '#a78bfa', '#38bdf8', '#4ade80']
+const CONFETTI_COLORS = ['rgb(var(--c-accent))', 'rgb(var(--c-success))', 'rgb(var(--c-warning))', '#a78bfa', 'rgb(var(--c-accent-bright))', '#4ade80']
 
 function fmtTs(ts: string, isPending: boolean): string {
   if (isPending) return timeAgo(ts)
@@ -124,9 +124,9 @@ function CheckpointCard({ cp, onDecision, readOnly }: CardProps) {
               onClick={() => decide('denied')}
               className="px-2.5 py-1 rounded transition-all cursor-pointer"
               style={{
-                background: '#ef444415',
-                color: '#ef4444',
-                border: '1px solid #ef444430',
+                background: 'rgb(var(--c-error) / 0.08)',
+                color: 'rgb(var(--c-error))',
+                border: '1px solid rgb(var(--c-error) / 0.19)',
                 opacity: busy ? 0.5 : 1,
               }}
             >
@@ -138,9 +138,9 @@ function CheckpointCard({ cp, onDecision, readOnly }: CardProps) {
               onClick={() => decide('approved')}
               className="px-2.5 py-1 rounded transition-all cursor-pointer"
               style={{
-                background: '#22c55e15',
-                color: '#22c55e',
-                border: '1px solid #22c55e30',
+                background: 'rgb(var(--c-success) / 0.08)',
+                color: 'rgb(var(--c-success))',
+                border: '1px solid rgb(var(--c-success) / 0.19)',
                 opacity: busy ? 0.5 : 1,
               }}
             >
@@ -151,8 +151,8 @@ function CheckpointCard({ cp, onDecision, readOnly }: CardProps) {
           <span
             className="ml-auto text-[10px] px-2 py-0.5 rounded"
             style={{
-              background: cp.status === 'approved' ? '#22c55e15' : cp.status === 'denied' ? '#ef444415' : '#94a3b815',
-              color: cp.status === 'approved' ? '#22c55e' : cp.status === 'denied' ? '#ef4444' : '#94a3b8',
+              background: cp.status === 'approved' ? 'rgb(var(--c-success) / 0.08)' : cp.status === 'denied' ? 'rgb(var(--c-error) / 0.08)' : 'rgb(var(--c-muted) / 0.08)',
+              color: cp.status === 'approved' ? 'rgb(var(--c-success))' : cp.status === 'denied' ? 'rgb(var(--c-error))' : 'rgb(var(--c-muted))',
             }}
           >
             {cp.status}
@@ -253,7 +253,7 @@ export function CheckpointQueue({ className = '', onPendingCount, readOnly }: Pr
         {pending.length > 0 && (
           <span
             className="text-[10px] px-1.5 py-0.5 rounded-full font-mono"
-            style={{ background: '#0ea5e920', color: '#0ea5e9', border: '1px solid #0ea5e940' }}
+            style={{ background: 'rgb(var(--c-accent) / 0.13)', color: 'rgb(var(--c-accent))', border: '1px solid rgb(var(--c-accent) / 0.25)' }}
           >
             {pending.length} pending
           </span>

@@ -6,6 +6,7 @@ import { VaultTree } from '../components/VaultTree'
 import { VaultEditor, type OpenFile } from '../components/VaultEditor'
 import { AgentMonitor } from '../components/AgentMonitor'
 import { CheckpointQueue } from '../components/CheckpointQueue'
+import { MemoryCockpit } from '../components/MemoryCockpit'
 import { MobileDashboard } from '../components/MobileDashboard'
 import { DotGrid } from '../components/DotGrid'
 import { GripVertical } from 'lucide-react'
@@ -44,7 +45,7 @@ const SIDEBAR_DEFAULT = 380
 const STORAGE_KEY = 'pineapple-sidebar-width'
 const SIDEBAR_TAB_KEY = 'pineapple-sidebar-tab'
 
-type SidebarTab = 'files' | 'agents'
+type SidebarTab = 'memory' | 'files' | 'agents'
 
 function loadSidebarWidth(): number {
   try {
@@ -60,9 +61,9 @@ function loadSidebarWidth(): number {
 function loadSidebarTab(): SidebarTab {
   try {
     const v = localStorage.getItem(SIDEBAR_TAB_KEY)
-    if (v === 'files' || v === 'agents') return v
+    if (v === 'files' || v === 'agents' || v === 'memory') return v
   } catch {}
-  return 'files'
+  return 'memory'
 }
 
 export function Dashboard() {
@@ -254,22 +255,22 @@ function DesktopDashboard() {
         >
           {/* Sidebar tab bar */}
           <div className="flex gap-1 mb-2 flex-shrink-0">
-            {(['files', 'agents'] as SidebarTab[]).map(tab => (
+            {(['memory', 'files', 'agents'] as SidebarTab[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => switchTab(tab)}
                 className="px-3 py-1 rounded-md text-xs font-mono capitalize transition-all flex items-center gap-1.5"
                 style={{
-                  background: sidebarTab === tab ? '#0ea5e920' : 'transparent',
-                  color: sidebarTab === tab ? '#0ea5e9' : '#64748b',
-                  border: `1px solid ${sidebarTab === tab ? '#0ea5e940' : 'transparent'}`,
+                  background: sidebarTab === tab ? 'rgb(var(--c-accent) / 0.13)' : 'transparent',
+                  color: sidebarTab === tab ? 'rgb(var(--c-accent))' : 'rgb(var(--c-faint))',
+                  border: `1px solid ${sidebarTab === tab ? 'rgb(var(--c-accent) / 0.25)' : 'transparent'}`,
                 }}
               >
                 {tab}
                 {tab === 'agents' && pendingCheckpoints > 0 && (
                   <span
                     className="w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold"
-                    style={{ background: '#ef4444', color: '#fff' }}
+                    style={{ background: 'rgb(var(--c-error))', color: '#fff' }}
                   >
                     {pendingCheckpoints}
                   </span>
@@ -277,6 +278,13 @@ function DesktopDashboard() {
               </button>
             ))}
           </div>
+
+          {/* Memory panel */}
+          {sidebarTab === 'memory' && (
+            <div className="flex-1 min-h-0 flex flex-col animate-fade-in">
+              <MemoryCockpit onOpenFile={handleOpenFile} className="h-full" />
+            </div>
+          )}
 
           {/* Files panel */}
           {sidebarTab === 'files' && (

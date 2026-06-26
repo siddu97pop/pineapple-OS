@@ -19,7 +19,7 @@ function StatusRow() {
     return () => clearInterval(id)
   }, [])
 
-  const syncColor = sync?.state === 'idle' ? '#22c55e' : sync?.state === 'syncing' ? '#f59e0b' : '#4b5563'
+  const syncColor = sync?.state === 'idle' ? 'rgb(var(--c-success))' : sync?.state === 'syncing' ? 'rgb(var(--c-warning))' : 'rgb(var(--c-faint))'
 
   return (
     <div
@@ -64,16 +64,16 @@ function TabBar({
           onClick={() => onSwitch(tab)}
           className="flex-1 py-2.5 text-xs font-mono capitalize transition-all flex items-center justify-center gap-1.5"
           style={{
-            color: active === tab ? '#0ea5e9' : '#64748b',
-            borderBottom: active === tab ? '2px solid #0ea5e9' : '2px solid transparent',
-            background: active === tab ? '#0ea5e908' : 'transparent',
+            color: active === tab ? 'rgb(var(--c-accent))' : 'rgb(var(--c-faint))',
+            borderBottom: active === tab ? '2px solid rgb(var(--c-accent))' : '2px solid transparent',
+            background: active === tab ? 'rgb(var(--c-accent) / 0.03)' : 'transparent',
           }}
         >
           {tab}
           {tab === 'agents' && pendingCount > 0 && (
             <span
               className="w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold"
-              style={{ background: '#ef4444', color: '#fff' }}
+              style={{ background: 'rgb(var(--c-error))', color: '#fff' }}
             >
               {pendingCount}
             </span>

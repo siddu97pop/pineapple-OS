@@ -119,11 +119,11 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
                 background: isActive
                   ? 'linear-gradient(to bottom, #162040, #0d1629)'
                   : 'transparent',
-                borderBottom: isActive ? '2px solid #0ea5e9' : '2px solid transparent',
+                borderBottom: isActive ? '2px solid rgb(var(--c-accent))' : '2px solid transparent',
                 boxShadow: isActive
-                  ? '0 2px 10px rgba(14,165,233,0.2), inset 0 1px 0 rgba(14,165,233,0.08)'
+                  ? '0 2px 10px rgb(var(--c-accent) / 0.2), inset 0 1px 0 rgb(var(--c-accent) / 0.08)'
                   : 'none',
-                color: isActive ? '#e2e8f0' : '#64748b',
+                color: isActive ? '#e2e8f0' : 'rgb(var(--c-faint))',
               }}
               onClick={() => { if (editingId !== tab.id) setActiveId(tab.id) }}
             >

@@ -2,14 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   THEME TOKENS — channel triplets so Tailwind alpha modifiers
+   (e.g. bg-electric/10) and inline rgb(var(--x) / a) both work.
+   Default = Nebula Indigo. data-theme="brass" = Brass Terminal.
+   ============================================================ */
+:root,
+:root[data-theme="indigo"] {
+  --c-base:        13 13 24;     /* #0D0D18 app canvas      */
+  --c-surface:     22 22 40;     /* #161628 cards           */
+  --c-surface2:    26 26 46;     /* #1A1A2E                 */
+  --c-elevated:    30 30 52;     /* #1E1E34 hover / raised  */
+  --c-border:      42 42 68;     /* #2A2A44                 */
+  --c-accent:      124 108 255;  /* #7C6CFF indigo-violet   */
+  --c-accent-dim:  99 84 230;    /* #6354E6                 */
+  --c-accent-bright:154 140 255; /* #9A8CFF                 */
+  --c-text:        230 230 240;  /* #E6E6F0                 */
+  --c-muted:       154 154 181;  /* #9A9AB5                 */
+  --c-faint:       94 94 120;    /* #5E5E78                 */
+  --c-success:     91 214 160;   /* #5BD6A0                 */
+  --c-warning:     241 195 107;  /* #F1C36B                 */
+  --c-error:       240 117 126;  /* #F0757E                 */
+}
+
+:root[data-theme="brass"] {
+  --c-base:        15 15 18;     /* #0F0F12 graphite        */
+  --c-surface:     23 23 28;     /* #17171C                 */
+  --c-surface2:    27 27 33;     /* #1B1B21                 */
+  --c-elevated:    31 31 38;     /* #1F1F26                 */
+  --c-border:      44 44 52;     /* #2C2C34                 */
+  --c-accent:      232 178 60;   /* #E8B23C brass / amber   */
+  --c-accent-dim:  201 150 43;   /* #C9962B                 */
+  --c-accent-bright:244 203 99;  /* #F4CB63                 */
+  --c-text:        236 234 227;  /* #ECEAE3 warm cream      */
+  --c-muted:       158 154 144;  /* #9E9A90                 */
+  --c-faint:       98 95 87;     /* #625F57                 */
+  --c-success:     134 179 106;  /* #86B36A                 */
+  --c-warning:     224 169 59;   /* #E0A93B                 */
+  --c-error:       217 104 94;   /* #D9685E                 */
+}
+
 @layer base {
   body {
-    @apply bg-navy-950 text-slate-200 font-sans;
-    background-image: radial-gradient(circle, #1e3a5f 1px, transparent 1px);
+    @apply bg-navy-950 font-sans;
+    color: rgb(var(--c-text));
+    background-image: radial-gradient(circle, rgb(var(--c-border)) 1px, transparent 1px);
     background-size: 24px 24px;
-    background-color: #0a0f1e;
+    background-color: rgb(var(--c-base));
     min-height: 100vh;
     overflow-x: hidden;
+    transition: background-color 0.35s ease, color 0.35s ease;
   }
   * { box-sizing: border-box; }
 }
@@ -17,25 +59,25 @@
 @layer components {
   .card {
     @apply bg-navy-900 rounded-xl;
-    border: 1px solid rgba(30,58,95,0.7);
+    border: 1px solid rgb(var(--c-border) / 0.7);
     border-top-color: rgba(255,255,255,0.06);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.04),
-      inset 0 0 20px rgba(14,165,233,0.04),
+      inset 0 0 20px rgb(var(--c-accent) / 0.04),
       0 4px 24px rgba(0,0,0,0.4);
   }
   .card:hover {
     border-top-color: rgba(255,255,255,0.09);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.06),
-      inset 0 0 20px rgba(14,165,233,0.07),
+      inset 0 0 20px rgb(var(--c-accent) / 0.07),
       0 4px 24px rgba(0,0,0,0.5),
-      0 0 20px rgba(14,165,233,0.06);
+      0 0 20px rgb(var(--c-accent) / 0.06);
   }
   .btn-primary {
     @apply bg-electric text-white px-4 py-2 rounded-lg text-sm font-medium transition-all;
   }
-  .btn-primary:hover { background: #0284c7; box-shadow: 0 0 20px rgba(14,165,233,0.3); }
+  .btn-primary:hover { background: rgb(var(--c-accent-dim)); box-shadow: 0 0 20px rgb(var(--c-accent) / 0.3); }
   .btn-primary:disabled { @apply opacity-50 cursor-not-allowed; }
   .btn-ghost {
     @apply text-slate-400 px-3 py-1.5 rounded-lg text-sm transition-colors;
@@ -44,7 +86,7 @@
   .input-field {
     @apply w-full bg-navy-950 border border-navy-600 rounded-lg px-4 py-2.5 text-slate-200 text-sm outline-none transition-all;
   }
-  .input-field:focus { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,0.15); }
+  .input-field:focus { border-color: rgb(var(--c-accent)); box-shadow: 0 0 0 3px rgb(var(--c-accent) / 0.15); }
   .section-label {
     @apply text-xs font-mono uppercase tracking-widest text-slate-500;
   }
@@ -53,9 +95,9 @@
 /* Custom scrollbars */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(30,58,95,0.8); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(14,165,233,0.4); }
-* { scrollbar-width: thin; scrollbar-color: rgba(30,58,95,0.8) transparent; }
+::-webkit-scrollbar-thumb { background: rgb(var(--c-border) / 0.8); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-accent) / 0.4); }
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--c-border) / 0.8) transparent; }
 
 /* Focus rings for keyboard navigation */
 button:focus-visible,
@@ -64,7 +106,7 @@ a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid rgba(14,165,233,0.65) !important;
+  outline: 2px solid rgb(var(--c-accent) / 0.65) !important;
   outline-offset: 2px;
 }
 button:focus:not(:focus-visible),

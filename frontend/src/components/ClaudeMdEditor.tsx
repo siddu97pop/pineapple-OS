@@ -36,9 +36,9 @@ export function ClaudeMdEditor() {
     : 'Save'
 
   const saveBg =
-    saveStatus === 'saved' ? '#22c55e'
-    : saveStatus === 'error' ? '#ef4444'
-    : '#0ea5e9'
+    saveStatus === 'saved' ? 'rgb(var(--c-success))'
+    : saveStatus === 'error' ? 'rgb(var(--c-error))'
+    : 'rgb(var(--c-accent))'
 
   return (
     <div className="card flex flex-col h-full overflow-hidden">
@@ -48,7 +48,7 @@ export function ClaudeMdEditor() {
           {isDirty && (
             <span
               className="w-2 h-2 rounded-full bg-electric"
-              style={{ boxShadow: '0 0 6px #0ea5e9' }}
+              style={{ boxShadow: '0 0 6px rgb(var(--c-accent))' }}
             />
           )}
         </div>
@@ -56,7 +56,7 @@ export function ClaudeMdEditor() {
           onClick={handleSave}
           disabled={!isDirty || saveStatus === 'saving'}
           className="px-3 py-1 rounded-lg text-xs text-white font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ background: isDirty ? saveBg : '#1e3a5f' }}
+          style={{ background: isDirty ? saveBg : 'rgb(var(--c-border))' }}
         >
           {saveLabel}
         </button>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { DotGrid } from '../components/DotGrid'
+import { setRememberMe } from '../hooks/useAuth'
 
 type Mode = 'login' | 'reset'
 
@@ -8,6 +9,7 @@ export function Login() {
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMeState] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
 
@@ -16,7 +18,11 @@ export function Login() {
     setLoading(true)
     setMessage(null)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setMessage({ type: 'error', text: error.message })
+    if (error) {
+      setMessage({ type: 'error', text: error.message })
+    } else {
+      setRememberMe(rememberMe)
+    }
     setLoading(false)
   }
 
@@ -63,6 +69,17 @@ export function Login() {
                 className="input-field"
                 required
               />
+            )}
+            {mode === 'login' && (
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={e => setRememberMeState(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-slate-600 bg-transparent accent-electric cursor-pointer"
+                />
+                <span className="text-xs text-slate-400">Remember me for 7 days</span>
+              </label>
             )}
             {message && (
               <div className={`text-xs px-3 py-2 rounded-lg ${message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>

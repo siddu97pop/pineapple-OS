@@ -5,22 +5,24 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Mapped to theme CSS vars (see styles/globals.css) so every
+        // navy-*/electric utility follows the active data-theme.
         navy: {
-          950: '#0a0f1e',
-          900: '#0d1629',
-          800: '#111827',
-          700: '#1a2035',
-          600: '#1e3a5f',
+          950: 'rgb(var(--c-base) / <alpha-value>)',
+          900: 'rgb(var(--c-surface) / <alpha-value>)',
+          800: 'rgb(var(--c-surface2) / <alpha-value>)',
+          700: 'rgb(var(--c-elevated) / <alpha-value>)',
+          600: 'rgb(var(--c-border) / <alpha-value>)',
         },
         electric: {
-          DEFAULT: '#0ea5e9',
-          dim: '#0284c7',
-          glow: '#38bdf8',
-          faint: 'rgba(14,165,233,0.15)',
+          DEFAULT: 'rgb(var(--c-accent) / <alpha-value>)',
+          dim: 'rgb(var(--c-accent-dim) / <alpha-value>)',
+          glow: 'rgb(var(--c-accent-bright) / <alpha-value>)',
+          faint: 'rgb(var(--c-accent) / 0.15)',
         }
       },
       fontFamily: {
-        sans: ['DM Sans', 'system-ui', 'sans-serif'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
       animation: {

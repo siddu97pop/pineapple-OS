@@ -7,7 +7,7 @@ function Chip({ children }: { children: React.ReactNode }) {
     <div
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-md"
       style={{
-        background: 'rgba(14,165,233,0.04)',
+        background: 'rgb(var(--c-accent) / 0.04)',
         border: '1px solid rgba(30,58,95,0.55)',
         borderTopColor: 'rgba(255,255,255,0.04)',
       }}
@@ -50,7 +50,7 @@ function Sparkline({ data }: { data: number[] }) {
     .join(' ')
   return (
     <svg width={W} height={H} className="inline-block align-middle">
-      <polyline key={key} points={points} fill="none" stroke="#0ea5e9"
+      <polyline key={key} points={points} fill="none" stroke="rgb(var(--c-accent))"
         strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"
         opacity="0.8" className="sparkline-animated" />
     </svg>
@@ -72,7 +72,7 @@ function LoadWidget({ status }: { status: ReturnType<typeof useUptime> }) {
   if (!status) return <Chip><span className="text-xs text-slate-600 font-mono">load…</span></Chip>
   const history = status.load_history ?? [status.load_1]
   const load = status.load_1.toFixed(2)
-  const color = status.load_1 > 4 ? '#ef4444' : status.load_1 > 2 ? '#f59e0b' : '#64748b'
+  const color = status.load_1 > 4 ? 'rgb(var(--c-error))' : status.load_1 > 2 ? 'rgb(var(--c-warning))' : 'rgb(var(--c-faint))'
   return (
     <Chip>
       <span className="text-xs text-slate-500">load</span>
@@ -83,7 +83,7 @@ function LoadWidget({ status }: { status: ReturnType<typeof useUptime> }) {
 }
 
 function SyncWidget({ state }: { state: string | null }) {
-  const color = state === 'idle' ? '#22c55e' : state === 'syncing' ? '#f59e0b' : '#4b5563'
+  const color = state === 'idle' ? 'rgb(var(--c-success))' : state === 'syncing' ? 'rgb(var(--c-warning))' : 'rgb(var(--c-faint))'
   const label = state === 'idle' ? 'Synced' : state === 'syncing' ? 'Syncing…' : 'Sync N/A'
   return (
     <Chip>
@@ -116,7 +116,7 @@ export function WidgetBar({ tabCount }: WidgetBarProps) {
     <div
       className="fixed top-12 left-0 right-0 z-40 flex items-center gap-2 px-4 h-10 border-b"
       style={{
-        background: 'rgba(6,9,15,0.85)',
+        background: 'rgb(var(--c-base) / 0.85)',
         backdropFilter: 'blur(12px)',
         borderColor: 'rgba(30,58,95,0.4)',
       }}

@@ -4,7 +4,7 @@ import { getAgents, killAgent, type AgentGroup } from '../lib/api'
 
 function SkeletonCard() {
   return (
-    <div className="rounded-lg border border-navy-700/40 px-3 py-2.5 space-y-2" style={{ background: '#0f172a' }}>
+    <div className="rounded-lg border border-navy-700/40 px-3 py-2.5 space-y-2" style={{ background: 'rgb(var(--c-surface))' }}>
       <div className="flex items-center gap-2">
         <div className="w-2 h-2 rounded-full bg-navy-700 animate-pulse flex-shrink-0" />
         <div className="h-3 w-28 rounded bg-navy-700 animate-pulse" />
@@ -50,9 +50,9 @@ function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
     <div
       className="rounded-lg border px-3 py-2.5 text-xs font-mono transition-colors"
       style={{
-        borderColor: 'rgba(30,41,59,0.8)',
+        borderColor: 'rgb(var(--c-border) / 0.8)',
         borderTopColor: 'rgba(255,255,255,0.03)',
-        background: '#0b1120',
+        background: 'rgb(var(--c-surface))',
       }}
     >
       {/* Primary row: status + name */}
@@ -61,8 +61,8 @@ function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
           <span
             className="w-2 h-2 rounded-full flex-shrink-0"
             style={{
-              background: agent.status === 'running' ? '#22c55e' : '#334155',
-              boxShadow: agent.status === 'running' ? '0 0 6px rgba(34,197,94,0.6)' : 'none',
+              background: agent.status === 'running' ? 'rgb(var(--c-success))' : 'rgb(var(--c-elevated))',
+              boxShadow: agent.status === 'running' ? '0 0 6px rgb(var(--c-success) / 0.6)' : 'none',
             }}
           />
           <span className="text-slate-200 truncate font-semibold">{agent.name}</span>
@@ -71,9 +71,9 @@ function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
               onClick={() => setExpanded(e => !e)}
               className="flex-shrink-0 px-1.5 py-px rounded text-[9px] cursor-pointer transition-colors"
               style={{
-                color: '#64748b',
-                background: 'rgba(30,41,59,0.5)',
-                border: '1px solid rgba(30,41,59,0.8)',
+                color: 'rgb(var(--c-faint))',
+                background: 'rgb(var(--c-border) / 0.5)',
+                border: '1px solid rgb(var(--c-border) / 0.8)',
               }}
               title={expanded ? 'hide helper processes' : 'show helper processes'}
             >
@@ -87,9 +87,9 @@ function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
             disabled={killing}
             className="flex-shrink-0 px-2.5 py-0.5 rounded text-[10px] transition-all cursor-pointer"
             style={{
-              background: confirming ? '#ef444418' : 'transparent',
-              color: confirming ? '#ef4444' : '#475569',
-              border: `1px solid ${confirming ? '#ef444440' : 'rgba(30,41,59,0.8)'}`,
+              background: confirming ? 'rgb(var(--c-error) / 0.09)' : 'transparent',
+              color: confirming ? 'rgb(var(--c-error))' : '#475569',
+              border: `1px solid ${confirming ? 'rgb(var(--c-error) / 0.25)' : 'rgb(var(--c-border) / 0.8)'}`,
             }}
           >
             {killing ? '…' : confirming ? 'confirm kill?' : 'kill'}
@@ -115,7 +115,7 @@ function AgentCard({ agent, onKill, readOnly }: AgentCardProps) {
 
       {/* Helper processes (MCP servers, wrappers, shells under this agent) */}
       {expanded && agent.children.length > 0 && (
-        <div className="mt-2 pt-2 space-y-1" style={{ borderTop: '1px solid rgba(30,41,59,0.6)' }}>
+        <div className="mt-2 pt-2 space-y-1" style={{ borderTop: '1px solid rgb(var(--c-border) / 0.6)' }}>
           {agent.children.map(child => (
             <div key={child.pid} className="flex items-center text-[10px]" title={child.cmdline}>
               <span className="text-slate-700 mr-1.5">└</span>

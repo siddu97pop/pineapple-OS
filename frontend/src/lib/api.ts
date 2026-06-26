@@ -156,6 +156,32 @@ export async function updateCheckpoint(
   return r.json()
 }
 
+export interface MemoryFile {
+  key: string
+  label: string
+  path: string
+  exists: boolean
+  mtime: number
+  lines: number
+  preview: string
+}
+
+export interface MemoryTimelineItem {
+  date: string
+  title: string
+  path: string
+}
+
+export interface MemoryData {
+  stack: MemoryFile[]
+  timeline: MemoryTimelineItem[]
+}
+
+export async function getMemory(): Promise<MemoryData> {
+  const r = await authFetch('/api/memory')
+  return r.json()
+}
+
 export async function getCheckpointsSSEUrl(): Promise<string> {
   const { data: { session } } = await (await import('./supabase')).supabase.auth.getSession()
   const token = session?.access_token || ''

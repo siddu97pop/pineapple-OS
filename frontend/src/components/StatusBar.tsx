@@ -24,7 +24,7 @@ function LiveClock() {
 }
 
 function SyncDot({ state }: { state: string | null }) {
-  const color = state === 'idle' ? '#22c55e' : state === 'syncing' ? '#f59e0b' : '#4b5563'
+  const color = state === 'idle' ? 'rgb(var(--c-success))' : state === 'syncing' ? 'rgb(var(--c-warning))' : 'rgb(var(--c-faint))'
   const label = state === 'idle' ? 'Synced' : state === 'syncing' ? 'Syncing' : 'Sync N/A'
   return (
     <span className="flex items-center gap-1.5 text-xs text-slate-500">

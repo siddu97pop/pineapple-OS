@@ -11,28 +11,45 @@ type Transport = 'ws' | 'http'
 
 const WS_CONNECT_TIMEOUT_MS = 4000
 
-const XTERM_THEME = {
-  background: '#0a0f1e',
-  foreground: '#e2e8f0',
-  cursor: '#0ea5e9',
-  cursorAccent: '#0a0f1e',
-  selectionBackground: 'rgba(14,165,233,0.2)',
-  black: '#0a0f1e',
-  brightBlack: '#1e3a5f',
-  red: '#f87171',
-  brightRed: '#ef4444',
-  green: '#4ade80',
-  brightGreen: '#22c55e',
-  yellow: '#fbbf24',
-  brightYellow: '#f59e0b',
-  blue: '#0ea5e9',
-  brightBlue: '#38bdf8',
-  magenta: '#a78bfa',
-  brightMagenta: '#8b5cf6',
-  cyan: '#22d3ee',
-  brightCyan: '#06b6d4',
-  white: '#e2e8f0',
-  brightWhite: '#f8fafc',
+// xterm renders to canvas and parses colours itself, so it cannot use CSS
+// variables directly. Resolve the active theme's tokens at construction time
+// into legacy rgb()/rgba() strings that xterm's colour parser understands.
+function triplet(name: string, fallback: string): string {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+    if (v) return v.replace(/\s+/g, ',') // "124 108 255" -> "124,108,255"
+  } catch {}
+  return fallback
+}
+
+function buildXtermTheme() {
+  const base = triplet('--c-base', '10,15,30')
+  const accent = triplet('--c-accent', '14,165,233')
+  const border = triplet('--c-border', '30,58,95')
+  const bright = triplet('--c-accent-bright', '56,189,248')
+  return {
+    background: `rgb(${base})`,
+    foreground: '#e2e8f0',
+    cursor: `rgb(${accent})`,
+    cursorAccent: `rgb(${base})`,
+    selectionBackground: `rgba(${accent},0.25)`,
+    black: `rgb(${base})`,
+    brightBlack: `rgb(${border})`,
+    red: '#f87171',
+    brightRed: '#ef4444',
+    green: '#4ade80',
+    brightGreen: '#22c55e',
+    yellow: '#fbbf24',
+    brightYellow: '#f59e0b',
+    blue: `rgb(${accent})`,
+    brightBlue: `rgb(${bright})`,
+    magenta: '#a78bfa',
+    brightMagenta: '#8b5cf6',
+    cyan: '#22d3ee',
+    brightCyan: '#06b6d4',
+    white: '#e2e8f0',
+    brightWhite: '#f8fafc',
+  }
 }
 
 interface TerminalProps {
@@ -337,7 +354,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     isUnmountedRef.current = false
 
     const term = new XTerm({
-      theme: XTERM_THEME,
+      theme: buildXtermTheme(),
       fontFamily: 'JetBrains Mono, Fira Code, monospace',
       fontSize: 14,
       lineHeight: 1.5,

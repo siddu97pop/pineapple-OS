@@ -39,7 +39,7 @@ export function SessionsFeed() {
         <span className="section-label">sessions.md</span>
         <span
           className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-slate-600'}`}
-          style={connected ? { boxShadow: '0 0 6px #22c55e' } : {}}
+          style={connected ? { boxShadow: '0 0 6px rgb(var(--c-success))' } : {}}
         />
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 font-mono text-xs">
