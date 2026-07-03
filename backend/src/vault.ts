@@ -1,14 +1,21 @@
 import { Request, Response } from 'express'
 import fs from 'fs/promises'
+import { realpathSync } from 'fs'
 import path from 'path'
 
 const VAULT_ROOT = process.env.VAULT_ROOT
   || (process.env.CLAUDE_MD_PATH ? path.dirname(process.env.CLAUDE_MD_PATH) : '/data/obsidian')
 
+const REAL_VAULT_ROOT = realpathSync(VAULT_ROOT)
+
 const EXCLUDED = new Set(['node_modules', 'dist', '.trash'])
 
 function shouldExclude(name: string): boolean {
   return name.startsWith('.') || EXCLUDED.has(name)
+}
+
+function isWithinRealRoot(real: string): boolean {
+  return real === REAL_VAULT_ROOT || real.startsWith(REAL_VAULT_ROOT + path.sep)
 }
 
 function resolveVaultPath(relPath: string): string | null {
@@ -17,6 +24,35 @@ function resolveVaultPath(relPath: string): string | null {
   const abs = path.join(VAULT_ROOT, normalised)
   // Ensure resolved path is within vault root
   if (abs !== VAULT_ROOT && !abs.startsWith(VAULT_ROOT + path.sep)) return null
+  return abs
+}
+
+// For reads: the target itself must exist and its real path must be contained
+// within the real vault root (guards against symlinks escaping the vault).
+function resolveVaultPathForRead(relPath: string): string | null {
+  const abs = resolveVaultPath(relPath)
+  if (!abs) return null
+  try {
+    const real = realpathSync(abs)
+    if (!isWithinRealRoot(real)) return null
+  } catch {
+    return null
+  }
+  return abs
+}
+
+// For writes: the target file may not exist yet, so realpath the parent
+// directory instead and assert it is within the real vault root.
+function resolveVaultPathForWrite(relPath: string): string | null {
+  const abs = resolveVaultPath(relPath)
+  if (!abs) return null
+  const parent = path.dirname(abs)
+  try {
+    const realParent = realpathSync(parent)
+    if (!isWithinRealRoot(realParent)) return null
+  } catch {
+    return null
+  }
   return abs
 }
 
@@ -75,7 +111,7 @@ export async function getVaultTreeHandler(req: Request, res: Response): Promise<
   const rawDepth = parseInt(String((req.query as any).depth ?? '2'), 10)
   const depth = Math.min(Math.max(isNaN(rawDepth) ? 2 : rawDepth, 0), 5)
 
-  const absPath = resolveVaultPath(relPath)
+  const absPath = resolveVaultPathForRead(relPath)
   if (!absPath) {
     res.status(400).json({ error: 'Invalid path' })
     return
@@ -101,7 +137,7 @@ export async function getVaultFileHandler(req: Request, res: Response): Promise<
     return
   }
 
-  const absPath = resolveVaultPath(relPath)
+  const absPath = resolveVaultPathForRead(relPath)
   if (!absPath) {
     res.status(400).json({ error: 'Invalid path' })
     return
@@ -127,7 +163,7 @@ export async function saveVaultFileHandler(req: Request, res: Response): Promise
     return
   }
 
-  const absPath = resolveVaultPath(relPath)
+  const absPath = resolveVaultPathForWrite(relPath)
   if (!absPath) {
     res.status(400).json({ error: 'Invalid path' })
     return

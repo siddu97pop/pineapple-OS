@@ -79,7 +79,13 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
   const inputInFlightRef = useRef(false)
   const isUnmountedRef = useRef(false)
   const connectRef = useRef<(() => Promise<void>) | null>(null)
+  const connectingRef = useRef(false)
   const sinceSeqRef = useRef(0)
+  const safeFitRef = useRef<() => void>(() => {})
+  const sendInputRef = useRef<(data: string) => void>(() => {})
+  const stopPollingRef = useRef<() => void>(() => {})
+  const stopHttpSessionRef = useRef<() => Promise<void>>(async () => {})
+  const disconnectWsRef = useRef<() => void>(() => {})
 
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting')
   const [reconnectIn, setReconnectIn] = useState(0)
@@ -96,7 +102,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     ws.onmessage = null
     ws.onclose = null
     ws.onerror = null
-    ws.close()
+    ws.close(1000, 'client')
     wsRef.current = null
   }, [])
 
@@ -321,25 +327,50 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
   }, [authedFetch, runPollLoop, safeFit, startReconnectCountdown])
 
   const connect = useCallback(async () => {
-    if (isUnmountedRef.current) return
-    setWsStatus('connecting')
-    clearTimeout(reconnectTimerRef.current)
-    clearInterval(countdownTimerRef.current)
-    stopPolling()
-    disconnectWs()
+    if (isUnmountedRef.current || connectingRef.current) return
+    connectingRef.current = true
+    try {
+      setWsStatus('connecting')
+      clearTimeout(reconnectTimerRef.current)
+      clearInterval(countdownTimerRef.current)
+      stopPolling()
+      disconnectWs()
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token || isUnmountedRef.current) return
-    tokenRef.current = session.access_token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token || isUnmountedRef.current) return
+      tokenRef.current = session.access_token
 
-    const wsConnected = await tryWebSocket(session.access_token)
-    if (wsConnected || isUnmountedRef.current) return
-    await startHttpSession()
+      const wsConnected = await tryWebSocket(session.access_token)
+      if (wsConnected || isUnmountedRef.current) return
+      await startHttpSession()
+    } finally {
+      connectingRef.current = false
+    }
   }, [disconnectWs, startHttpSession, stopPolling, tryWebSocket])
 
   useEffect(() => {
     connectRef.current = connect
   }, [connect])
+
+  useEffect(() => {
+    safeFitRef.current = safeFit
+  }, [safeFit])
+
+  useEffect(() => {
+    sendInputRef.current = sendInput
+  }, [sendInput])
+
+  useEffect(() => {
+    stopPollingRef.current = stopPolling
+  }, [stopPolling])
+
+  useEffect(() => {
+    stopHttpSessionRef.current = stopHttpSession
+  }, [stopHttpSession])
+
+  useEffect(() => {
+    disconnectWsRef.current = disconnectWs
+  }, [disconnectWs])
 
   // Re-fit when this tab becomes visible after being hidden.
   useEffect(() => {
@@ -377,19 +408,19 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     fitAddonRef.current = fitAddon
 
     rafRef.current = window.requestAnimationFrame(() => {
-      safeFit()
+      safeFitRef.current()
     })
 
     const dataDisposable = term.onData((data) => {
-      sendInput(data)
+      sendInputRef.current(data)
     })
 
-    void connect()
+    void connectRef.current?.()
 
     const resizeObserver = new ResizeObserver(() => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       rafRef.current = window.requestAnimationFrame(() => {
-        safeFit()
+        safeFitRef.current()
       })
     })
     resizeObserver.observe(containerRef.current)
@@ -398,7 +429,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     const handleResize = () => {
       clearTimeout(resizeDebounce)
       resizeDebounce = window.setTimeout(() => {
-        safeFit()
+        safeFitRef.current()
       }, 100)
     }
     window.addEventListener('resize', handleResize)
@@ -407,17 +438,17 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       isUnmountedRef.current = true
       resizeObserver.disconnect()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      stopPolling()
+      stopPollingRef.current()
       clearTimeout(reconnectTimerRef.current)
       clearInterval(countdownTimerRef.current)
       window.removeEventListener('resize', handleResize)
       clearTimeout(resizeDebounce)
       dataDisposable.dispose()
-      disconnectWs()
-      void stopHttpSession()
+      disconnectWsRef.current()
+      void stopHttpSessionRef.current()
       term.dispose()
     }
-  }, [connect, disconnectWs, safeFit, sendInput, stopPolling, stopHttpSession])
+  }, [])
 
   return (
     <div className={`relative card overflow-hidden ${className}`}>
