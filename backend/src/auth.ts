@@ -4,6 +4,19 @@ import 'dotenv/config'
 
 const JWT_PUBLIC_KEY = process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n')
 
+// Fail closed: if ALLOWED_USER_EMAILS is empty/unset, nobody is allowed in.
+export function isAllowedUser(decoded: any): boolean {
+  const allowed = new Set(
+    (process.env.ALLOWED_USER_EMAILS || '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  )
+  if (allowed.size === 0) return false
+  const email = typeof decoded?.email === 'string' ? decoded.email.toLowerCase() : ''
+  return allowed.has(email)
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const token = extractAuthToken(req)
   if (!token) {
@@ -11,7 +24,11 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return
   }
   try {
-    const decoded = jwt.verify(token, JWT_PUBLIC_KEY, { algorithms: ['ES256'] })
+    const decoded = jwt.verify(token, JWT_PUBLIC_KEY, { algorithms: ['ES256'], audience: 'authenticated' })
+    if (!isAllowedUser(decoded)) {
+      res.status(403).json({ error: 'Forbidden' })
+      return
+    }
     ;(req as any).user = decoded
     next()
   } catch {

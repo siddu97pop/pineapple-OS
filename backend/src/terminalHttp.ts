@@ -1,6 +1,7 @@
 import { IPty, spawn } from 'node-pty'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
+import { buildPtyEnv } from './ptyEnv'
 
 const MAX_PTY_SESSIONS = parseInt(process.env.MAX_PTY_SESSIONS || '5')
 const OBSIDIAN_PATH = process.env.CLAUDE_MD_PATH
@@ -95,7 +96,7 @@ export function startTerminalSession(): { sessionId: string } {
     cols: 80,
     rows: 24,
     cwd: OBSIDIAN_PATH,
-    env: process.env as Record<string, string>,
+    env: buildPtyEnv(),
   })
 
   const session: TerminalSession = {

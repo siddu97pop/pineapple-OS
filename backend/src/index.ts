@@ -4,7 +4,7 @@ import http from 'http'
 import { WebSocketServer } from 'ws'
 import cors from 'cors'
 import jwt from 'jsonwebtoken'
-import { requireAuth, extractAuthToken } from './auth'
+import { requireAuth, extractAuthToken, isAllowedUser } from './auth'
 import { handleTerminalConnection } from './terminal'
 import {
   startTerminalSession,
@@ -31,7 +31,7 @@ const app = express()
 const server = http.createServer(app)
 
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || 'https://pineapple.lexitools.tech',
   methods: ['GET', 'POST', 'OPTIONS'],
 }))
 app.use(express.json({ limit: '2mb' }))
@@ -174,7 +174,13 @@ server.on('upgrade', (request, socket, head) => {
     }
 
     try {
-      jwt.verify(token, process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n'), { algorithms: ['ES256'] })
+      const decoded = jwt.verify(token, process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n'), { algorithms: ['ES256'], audience: 'authenticated' })
+      if (!isAllowedUser(decoded)) {
+        console.log('[WS] rejected: user not allowed')
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+        socket.destroy()
+        return
+      }
       console.log('[WS] JWT verified OK, upgrading')
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request)
@@ -196,6 +202,10 @@ const SESSIONS_PATH = process.env.SESSIONS_MD_PATH || '/data/obsidian/logs/sessi
 
 initFileWatcher(SESSIONS_PATH)
 initCheckpointWatcher()
+
+if (!process.env.ALLOWED_USER_EMAILS?.trim()) {
+  console.warn('[auth] ALLOWED_USER_EMAILS is empty/unset — ALL requests will be rejected (403) until it is set')
+}
 
 server.listen(PORT, () => {
   console.log(`

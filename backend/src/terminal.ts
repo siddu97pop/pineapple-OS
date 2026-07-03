@@ -2,6 +2,7 @@ import { IPty, spawn } from 'node-pty'
 import { WebSocket } from 'ws'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
+import { buildPtyEnv } from './ptyEnv'
 
 const MAX_PTY_SESSIONS = parseInt(process.env.MAX_PTY_SESSIONS || '5')
 // Traefik v3 closes connections it reads no client data from for 60s
@@ -30,7 +31,7 @@ export function handleTerminalConnection(ws: WebSocket): void {
       cols: 80,
       rows: 24,
       cwd: OBSIDIAN_PATH,
-      env: process.env as Record<string, string>,
+      env: buildPtyEnv(),
     })
   } catch (err) {
     console.error('[PTY] spawn failed:', err)
