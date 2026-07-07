@@ -41,6 +41,14 @@ export function handleTerminalConnection(ws: WebSocket): void {
 
   console.log('[PTY] spawned', { sessionId, cwd: OBSIDIAN_PATH })
 
+  // node-pty rethrows non-EIO/EAGAIN socket errors as uncaught exceptions
+  // unless at least one external 'error' listener is attached — this listener
+  // is required to prevent a single session's teardown race from crashing
+  // the whole server process.
+  ;(pty as unknown as { on(event: string, listener: (err: Error) => void): void }).on('error', (err: Error) => {
+    console.error('[PTY] error', { sessionId, message: err.message })
+  })
+
   const pingTimer = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) ws.ping()
   }, WS_PING_INTERVAL_MS)

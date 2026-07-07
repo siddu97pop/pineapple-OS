@@ -114,6 +114,14 @@ export function startTerminalSession(): { sessionId: string } {
     cwd: OBSIDIAN_PATH,
   })
 
+  // node-pty rethrows non-EIO/EAGAIN socket errors as uncaught exceptions
+  // unless at least one external 'error' listener is attached — this listener
+  // is required to prevent a single session's teardown race from crashing
+  // the whole server process.
+  ;(pty as unknown as { on(event: string, listener: (err: Error) => void): void }).on('error', (err: Error) => {
+    console.error('[HTTP-PTY] error', { sessionId: id, message: err.message })
+  })
+
   pty.onData((data) => {
     session.chunks.push({ seq: session.nextSeq, data })
     session.nextSeq += 1
