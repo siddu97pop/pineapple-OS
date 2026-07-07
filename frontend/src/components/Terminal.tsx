@@ -446,7 +446,14 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       dataDisposable.dispose()
       disconnectWsRef.current()
       void stopHttpSessionRef.current()
-      term.dispose()
+      // xterm addons (notably @xterm/addon-webgl) can throw during teardown
+      // if their internal disposal callbacks run against an already-detached
+      // container — catch so one tab's dispose can't take down the whole app.
+      try {
+        term.dispose()
+      } catch (err) {
+        console.error('[Terminal] dispose error:', err)
+      }
     }
   }, [])
 

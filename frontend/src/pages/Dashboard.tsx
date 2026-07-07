@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { NavBar } from '../components/NavBar'
 import { WidgetBar } from '../components/WidgetBar'
 import { TerminalTabs } from '../components/TerminalTabs'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import { VaultTree } from '../components/VaultTree'
 import { VaultEditor, type OpenFile } from '../components/VaultEditor'
 import { AgentMonitor } from '../components/AgentMonitor'
@@ -227,7 +228,9 @@ function DesktopDashboard() {
       <main className="pt-[88px] h-screen flex overflow-hidden px-3 pb-3 gap-0">
         {/* Terminal area */}
         <div className="flex-1 min-w-0 min-h-0 py-3 pr-0">
-          <TerminalTabs className="h-full" onTabCountChange={setTabCount} />
+          <ErrorBoundary>
+            <TerminalTabs className="h-full" onTabCountChange={setTabCount} />
+          </ErrorBoundary>
         </div>
 
         {/* Drag resizer */}
