@@ -1,6 +1,7 @@
 ---
 tags:
   - project
+  - pineapple-os
 ---
 
 # Pineapple OS — v2 Roadmap

@@ -65,7 +65,7 @@ export function LocalGraph({ openNotePath, onOpenNote, className = '' }: LocalGr
   }), [graph])
 
   const handleClick = useCallback((n: GraphNode) => {
-    if (n.id !== openNotePath) onOpenNote(n.id)
+    if (n.id !== openNotePath && !n.id.startsWith('tag:')) onOpenNote(n.id)
   }, [openNotePath, onOpenNote])
 
   return (

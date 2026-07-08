@@ -194,7 +194,7 @@ export interface GraphEdge {
   source: string
   target: string
   confidence: number
-  sourceType: 'wikilink'
+  sourceType: 'wikilink' | 'tag'
 }
 
 export interface GraphCommunity {

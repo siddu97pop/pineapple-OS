@@ -1,3 +1,7 @@
+---
+tags:
+  - pineapple-os
+---
 # Pineapple OS — Vault Graph View (Graphify)
 
 **Status:** Shipped 2026-07-08 (wikilink-parser fallback; graphifyy pending an Anthropic API key) · Planned 2026-07-07

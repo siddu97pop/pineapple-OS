@@ -2,6 +2,7 @@
 tags:
   - plan
   - security
+  - pineapple-os
 project: Pineapple OS
 created: 2026-07-03
 ---

@@ -1,6 +1,7 @@
 ---
 tags:
   - project
+  - pineapple-os
 ---
 
 # AGENTIC OS V2

@@ -193,7 +193,7 @@ export function GraphView({ onOpenNote, className = '' }: GraphViewProps) {
             }}
             linkWidth={1}
             onNodeHover={(n: FGNode | null) => setHoverId(n?.id ?? null)}
-            onNodeClick={(n: FGNode) => onOpenNote(n.id)}
+            onNodeClick={(n: FGNode) => { if (!n.id.startsWith('tag:')) onOpenNote(n.id) }}
             cooldownTicks={100}
           />
         )}
