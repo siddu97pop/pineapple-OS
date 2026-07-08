@@ -1,3 +1,8 @@
+---
+tags:
+  - project
+---
+
 # Pineapple OS — Scaffold Prompt
 
 > Paste the block below into a fresh Claude Code session opened inside the `projects/Pineapple OS/` folder.

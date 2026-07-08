@@ -1,3 +1,8 @@
+---
+tags:
+  - project
+---
+
 # Pineapple OS — v2 Roadmap
 
 > Research session: 2026-05-11

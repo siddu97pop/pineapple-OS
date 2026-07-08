@@ -57,7 +57,7 @@ function NodeRow({ node, depth, childMap, expanded, loading, openFilePath, onTog
             ? 'text-electric'
             : 'text-slate-400 group-hover:text-slate-200'
           }`}
-          style={isActive ? { textShadow: '0 0 8px rgba(14,165,233,0.4)' } : {}}
+          style={isActive ? { textShadow: '0 0 8px rgb(var(--c-accent) / 0.4)' } : {}}
         >
           {node.name}
         </span>
