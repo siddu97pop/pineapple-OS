@@ -19,6 +19,7 @@ import { getClaudeMdHandler, saveClaudeMdHandler } from './claudeMd'
 import { getSessionsHandler } from './sessions'
 import { getVaultTreeHandler, getVaultFileHandler, saveVaultFileHandler } from './vault'
 import { getMemoryHandler } from './memory'
+import { getVaultGraphHandler, rebuildVaultGraphHandler, getGraphStatusHandler } from './graph'
 import { getAgents, killAgent } from './agents'
 import {
   initCheckpointWatcher,
@@ -62,6 +63,10 @@ app.get('/api/vault/file', requireAuth, getVaultFileHandler)
 app.post('/api/vault/file', requireAuth, saveVaultFileHandler)
 
 app.get('/api/memory', requireAuth, getMemoryHandler)
+
+app.get('/api/vault/graph', requireAuth, getVaultGraphHandler)
+app.post('/api/vault/graph/rebuild', requireAuth, rebuildVaultGraphHandler)
+app.get('/api/vault/graph/status', requireAuth, getGraphStatusHandler)
 
 app.get('/api/agents', requireAuth, (_req, res) => {
   res.json(getAgents())

@@ -23,6 +23,10 @@ sudo npm ci --omit=dev
 echo "==> Copying .env..."
 sudo cp "$PROJECT_DIR/backend/.env" "$DEPLOY_DIR/.env"
 
+echo "==> Copying graph rebuild script..."
+sudo cp "$SCRIPT_DIR/rebuild-graph.sh" "$DEPLOY_DIR/rebuild-graph.sh"
+sudo chmod +x "$DEPLOY_DIR/rebuild-graph.sh"
+
 echo "==> Restarting service..."
 sudo systemctl restart pineapple-api
 sleep 2

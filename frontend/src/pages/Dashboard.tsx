@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { NavBar } from '../components/NavBar'
+import { NavBar, type ViewMode } from '../components/NavBar'
 import { WidgetBar } from '../components/WidgetBar'
 import { TerminalTabs } from '../components/TerminalTabs'
 import { ErrorBoundary } from '../components/ErrorBoundary'
@@ -8,6 +8,8 @@ import { VaultEditor, type OpenFile } from '../components/VaultEditor'
 import { AgentMonitor } from '../components/AgentMonitor'
 import { CheckpointQueue } from '../components/CheckpointQueue'
 import { MemoryCockpit } from '../components/MemoryCockpit'
+import { GraphView } from '../components/GraphView'
+import { LocalGraph } from '../components/LocalGraph'
 import { MobileDashboard } from '../components/MobileDashboard'
 import { DotGrid } from '../components/DotGrid'
 import { GripVertical } from 'lucide-react'
@@ -45,8 +47,17 @@ const SIDEBAR_MAX = 680
 const SIDEBAR_DEFAULT = 380
 const STORAGE_KEY = 'pineapple-sidebar-width'
 const SIDEBAR_TAB_KEY = 'pineapple-sidebar-tab'
+const VIEW_MODE_KEY = 'pineapple-view-mode'
 
-type SidebarTab = 'memory' | 'files' | 'agents'
+type SidebarTab = 'memory' | 'files' | 'agents' | 'graph'
+
+function loadViewMode(): ViewMode {
+  try {
+    const v = localStorage.getItem(VIEW_MODE_KEY)
+    if (v === 'terminal' || v === 'graph') return v
+  } catch {}
+  return 'terminal'
+}
 
 function loadSidebarWidth(): number {
   try {
@@ -62,7 +73,7 @@ function loadSidebarWidth(): number {
 function loadSidebarTab(): SidebarTab {
   try {
     const v = localStorage.getItem(SIDEBAR_TAB_KEY)
-    if (v === 'files' || v === 'agents' || v === 'memory') return v
+    if (v === 'files' || v === 'agents' || v === 'memory' || v === 'graph') return v
   } catch {}
   return 'memory'
 }
@@ -76,6 +87,7 @@ function DesktopDashboard() {
   const [tabCount, setTabCount] = useState(1)
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(loadSidebarTab)
+  const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode)
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
   const [activeFileIdx, setActiveFileIdx] = useState(0)
   const [pendingCheckpoints, setPendingCheckpoints] = useState(0)
@@ -97,6 +109,12 @@ function DesktopDashboard() {
   const switchTab = useCallback((tab: SidebarTab) => {
     setSidebarTab(tab)
     try { localStorage.setItem(SIDEBAR_TAB_KEY, tab) } catch {}
+  }, [])
+
+  // Persist view mode
+  const switchViewMode = useCallback((mode: ViewMode) => {
+    setViewMode(mode)
+    try { localStorage.setItem(VIEW_MODE_KEY, mode) } catch {}
   }, [])
 
   // Resizer
@@ -221,16 +239,27 @@ function DesktopDashboard() {
   return (
     <div className="h-screen overflow-hidden">
       <DotGrid />
-      <NavBar />
+      <NavBar viewMode={viewMode} onViewModeChange={switchViewMode} />
       <WidgetBar tabCount={tabCount} />
 
       {/* pt-[88px] = NavBar(48) + WidgetBar(40) */}
       <main className="pt-[88px] h-screen flex overflow-hidden px-3 pb-3 gap-0">
-        {/* Terminal area */}
-        <div className="flex-1 min-w-0 min-h-0 py-3 pr-0">
-          <ErrorBoundary>
-            <TerminalTabs className="h-full" onTabCountChange={setTabCount} />
-          </ErrorBoundary>
+        {/* Terminal / Graph area — terminal stays mounted while hidden so
+            switching views doesn't close the WS and kill live PTY sessions */}
+        <div className="flex-1 min-w-0 min-h-0 py-3 pr-0 relative">
+          <div
+            className={viewMode === 'terminal' ? 'h-full' : 'absolute inset-0 py-3 invisible pointer-events-none'}
+            aria-hidden={viewMode !== 'terminal'}
+          >
+            <ErrorBoundary>
+              <TerminalTabs className="h-full" onTabCountChange={setTabCount} />
+            </ErrorBoundary>
+          </div>
+          {viewMode === 'graph' && (
+            <ErrorBoundary>
+              <GraphView className="h-full" onOpenNote={handleOpenFile} />
+            </ErrorBoundary>
+          )}
         </div>
 
         {/* Drag resizer */}
@@ -258,7 +287,7 @@ function DesktopDashboard() {
         >
           {/* Sidebar tab bar */}
           <div className="flex gap-1 mb-2 flex-shrink-0">
-            {(['memory', 'files', 'agents'] as SidebarTab[]).map(tab => (
+            {(['memory', 'files', 'agents', 'graph'] as SidebarTab[]).map(tab => (
               <button
                 key={tab}
                 onClick={() => switchTab(tab)}
@@ -343,6 +372,17 @@ function DesktopDashboard() {
               <div className="flex-1 min-h-0">
                 <AgentMonitor className="h-full" />
               </div>
+            </div>
+          )}
+
+          {/* Local graph panel */}
+          {sidebarTab === 'graph' && (
+            <div className="flex-1 min-h-0 flex flex-col animate-fade-in">
+              <LocalGraph
+                openNotePath={activeFilePath}
+                onOpenNote={handleOpenFile}
+                className="h-full"
+              />
             </div>
           )}
         </div>

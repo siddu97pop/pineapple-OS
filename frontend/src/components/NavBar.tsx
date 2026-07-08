@@ -23,6 +23,41 @@ const THEMES: { key: Theme; label: string; swatch: string }[] = [
   { key: 'brass', label: 'Brass', swatch: '#E8B23C' },
 ]
 
+export type ViewMode = 'terminal' | 'graph'
+
+function ViewModeToggle({ viewMode, onChange }: { viewMode: ViewMode; onChange: (v: ViewMode) => void }) {
+  const MODES: { key: ViewMode; label: string }[] = [
+    { key: 'terminal', label: 'Terminal' },
+    { key: 'graph', label: 'Graph' },
+  ]
+  return (
+    <div
+      className="flex items-center rounded-lg overflow-hidden"
+      style={{ border: '1px solid rgb(var(--c-border))' }}
+      role="group"
+      aria-label="View mode"
+    >
+      {MODES.map(m => {
+        const on = viewMode === m.key
+        return (
+          <button
+            key={m.key}
+            onClick={() => onChange(m.key)}
+            aria-pressed={on}
+            className="px-2.5 py-1 text-xs font-medium transition-colors"
+            style={{
+              background: on ? 'rgb(var(--c-accent) / 0.16)' : 'transparent',
+              color: on ? 'rgb(var(--c-text))' : 'rgb(var(--c-muted))',
+            }}
+          >
+            {m.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function ThemeToggle() {
   const [theme, setTheme] = useTheme()
   return (
@@ -54,7 +89,12 @@ function ThemeToggle() {
   )
 }
 
-export function NavBar() {
+interface NavBarProps {
+  viewMode?: ViewMode
+  onViewModeChange?: (v: ViewMode) => void
+}
+
+export function NavBar({ viewMode, onViewModeChange }: NavBarProps = {}) {
   const [showSignOutMenu, setShowSignOutMenu] = useState(false)
 
   const handleSignOut = async () => {
@@ -82,6 +122,9 @@ export function NavBar() {
         <span className="font-bold text-white tracking-tight">Pineapple OS</span>
       </div>
       <div className="flex items-center gap-3">
+        {viewMode && onViewModeChange && (
+          <ViewModeToggle viewMode={viewMode} onChange={onViewModeChange} />
+        )}
         <ThemeToggle />
         <a
           href="https://dash.lexitools.tech"

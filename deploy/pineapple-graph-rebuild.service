@@ -1,0 +1,13 @@
+[Unit]
+Description=Pineapple OS — nightly vault graph rebuild
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/pineapple-api
+ExecStart=/opt/pineapple-api/rebuild-graph.sh
+EnvironmentFile=/opt/pineapple-api/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pineapple-graph-rebuild

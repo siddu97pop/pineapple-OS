@@ -182,6 +182,63 @@ export async function getMemory(): Promise<MemoryData> {
   return r.json()
 }
 
+export interface GraphNode {
+  id: string
+  label: string
+  folder: string
+  community: string
+  degree: number
+}
+
+export interface GraphEdge {
+  source: string
+  target: string
+  confidence: number
+  sourceType: 'wikilink'
+}
+
+export interface GraphCommunity {
+  name: string
+  nodeCount: number
+}
+
+export interface GraphMeta {
+  builtAt: string
+  nodeCount: number
+  edgeCount: number
+  communities: GraphCommunity[]
+  buildMethod: string
+  buildMs: number
+}
+
+export interface VaultGraphData {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  meta: GraphMeta
+}
+
+export interface GraphRebuildStatus {
+  state: 'idle' | 'running' | 'done' | 'error'
+  startedAt: string | null
+  finishedAt: string | null
+  error: string | null
+}
+
+export async function getVaultGraph(): Promise<VaultGraphData> {
+  const r = await authFetch('/api/vault/graph')
+  return r.json()
+}
+
+export async function rebuildVaultGraph(): Promise<{ ok: boolean; status: GraphRebuildStatus }> {
+  const r = await authFetch('/api/vault/graph/rebuild', { method: 'POST' })
+  return r.json()
+}
+
+export async function getGraphStatus(): Promise<GraphRebuildStatus> {
+  const r = await authFetch('/api/vault/graph/status')
+  return r.json()
+}
+
 export async function getCheckpointsSSEUrl(): Promise<string> {
   const { data: { session } } = await (await import('./supabase')).supabase.auth.getSession()
   const token = session?.access_token || ''

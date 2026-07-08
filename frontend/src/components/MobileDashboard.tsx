@@ -3,11 +3,12 @@ import { NavBar } from './NavBar'
 import { SessionsFeed } from './SessionsFeed'
 import { CheckpointQueue } from './CheckpointQueue'
 import { AgentMonitor } from './AgentMonitor'
+import { MobileGraphView } from './MobileGraphView'
 import { DotGrid } from './DotGrid'
 import { useUptime, formatUptime } from '../hooks/useUptime'
 import { useSyncthingStatus } from '../hooks/useSyncthingStatus'
 
-type MobileTab = 'sessions' | 'agents'
+type MobileTab = 'sessions' | 'agents' | 'graph'
 
 function StatusRow() {
   const uptime = useUptime()
@@ -58,7 +59,7 @@ function TabBar({
 }) {
   return (
     <div className="flex border-b border-navy-600/40 flex-shrink-0">
-      {(['sessions', 'agents'] as MobileTab[]).map(tab => (
+      {(['sessions', 'agents', 'graph'] as MobileTab[]).map(tab => (
         <button
           key={tab}
           onClick={() => onSwitch(tab)}
@@ -113,6 +114,12 @@ export function MobileDashboard() {
             <div className="p-3 space-y-4 animate-fade-in">
               <CheckpointQueue onPendingCount={setPendingCount} readOnly />
               <AgentMonitor readOnly />
+            </div>
+          )}
+
+          {tab === 'graph' && (
+            <div className="h-full p-3 animate-fade-in">
+              <MobileGraphView className="h-full" />
             </div>
           )}
         </div>
