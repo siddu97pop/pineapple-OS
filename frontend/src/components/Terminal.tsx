@@ -69,6 +69,11 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
   const reconnectTimerRef = useRef<number>()
   const countdownTimerRef = useRef<number>()
   const pollAbortRef = useRef<AbortController | null>(null)
+  const inputStreamAbortRef = useRef<AbortController | null>(null)
+  const inputStreamControllerRef = useRef<ReadableStreamDefaultController<Uint8Array> | null>(null)
+  const inputStreamFailedRef = useRef(false)
+  const inputFlushTimerRef = useRef<number>()
+  const inputEncoderRef = useRef(new TextEncoder())
   const rafRef = useRef<number>()
   const inputBufferRef = useRef('')
   const inputInFlightRef = useRef(false)
@@ -120,7 +125,9 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
 
   const terminalFetch = useCallback(async (path: string, options: RequestInit = {}) => {
     const headers = new Headers(options.headers || {})
-    headers.set('Content-Type', 'application/json')
+    if (!headers.has('Content-Type') && options.body !== undefined) {
+      headers.set('Content-Type', 'application/json')
+    }
     if (sessionCapabilityRef.current) {
       headers.set('X-Terminal-Capability', sessionCapabilityRef.current)
     } else if (tokenRef.current) {
@@ -131,6 +138,30 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       ...options,
       headers,
     })
+  }, [])
+
+  const enqueueInputMessage = useCallback((message: { type: 'input'; data: string } | { type: 'resize'; cols: number; rows: number }) => {
+    const controller = inputStreamControllerRef.current
+    if (!controller || inputStreamFailedRef.current) return false
+    try {
+      controller.enqueue(inputEncoderRef.current.encode(`${JSON.stringify(message)}\n`))
+      return true
+    } catch {
+      inputStreamControllerRef.current = null
+      inputStreamFailedRef.current = true
+      return false
+    }
+  }, [])
+
+  const stopInputStream = useCallback(() => {
+    clearTimeout(inputFlushTimerRef.current)
+    inputFlushTimerRef.current = undefined
+    const controller = inputStreamControllerRef.current
+    inputStreamControllerRef.current = null
+    inputStreamFailedRef.current = false
+    try { controller?.close() } catch {}
+    inputStreamAbortRef.current?.abort()
+    inputStreamAbortRef.current = null
   }, [])
 
   const writeOutput = useCallback((data: string) => {
@@ -158,6 +189,10 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       return
     }
 
+    if (transportRef.current === 'http' && enqueueInputMessage({ type: 'resize', cols, rows })) {
+      return
+    }
+
     const sessionId = sessionIdRef.current
     if (!sessionId) return
     try {
@@ -166,7 +201,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
         body: JSON.stringify({ sessionId, cols, rows }),
       })
     } catch {}
-  }, [terminalFetch])
+  }, [enqueueInputMessage, terminalFetch])
 
   const safeFit = useCallback(() => {
     const container = containerRef.current
@@ -189,6 +224,11 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     if (!sessionId || !inputBufferRef.current) return
     const payload = inputBufferRef.current
     inputBufferRef.current = ''
+
+    if (transportRef.current === 'http' && enqueueInputMessage({ type: 'input', data: payload })) {
+      return
+    }
+
     inputInFlightRef.current = true
     try {
       await terminalFetch('/api/terminal/input', {
@@ -198,7 +238,15 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     } catch {}
     inputInFlightRef.current = false
     if (inputBufferRef.current) void flushInput()
-  }, [terminalFetch])
+  }, [enqueueInputMessage, terminalFetch])
+
+  const scheduleInputFlush = useCallback(() => {
+    if (inputFlushTimerRef.current !== undefined) return
+    inputFlushTimerRef.current = window.setTimeout(() => {
+      inputFlushTimerRef.current = undefined
+      void flushInput()
+    }, 8)
+  }, [flushInput])
 
   const sendInput = useCallback((data: string) => {
     const ws = wsRef.current
@@ -206,14 +254,20 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       ws.send(JSON.stringify({ type: 'input', data }))
       return
     }
+
+    if (transportRef.current === 'http' && enqueueInputMessage({ type: 'input', data })) {
+      return
+    }
+
     inputBufferRef.current += data
-    void flushInput()
-  }, [flushInput])
+    scheduleInputFlush()
+  }, [enqueueInputMessage, scheduleInputFlush])
 
   const stopHttpSession = useCallback(async () => {
     const sessionId = sessionIdRef.current
     if (!sessionId) return
     stopPolling()
+    stopInputStream()
     sessionIdRef.current = null
     sinceSeqRef.current = 0
     try {
@@ -223,7 +277,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       })
     } catch {}
     sessionCapabilityRef.current = ''
-  }, [terminalFetch, stopPolling])
+  }, [stopInputStream, stopPolling, terminalFetch])
 
   const startReconnectCountdown = useCallback(() => {
     if (isUnmountedRef.current) return
@@ -406,6 +460,48 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     }
   }, [startReconnectCountdown, stopHttpSession, stopPolling, terminalFetch, writeOutput])
 
+  // HTTP fallback input stays open for the lifetime of the PTY. Each line is a
+  // small NDJSON control frame, so typing does not create one fetch/preflight
+  // round trip per key. Chrome requires duplex:'half' for a streaming request.
+  const startInputStream = useCallback((sessionId: string) => {
+    inputStreamFailedRef.current = false
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        streamController = controller
+        inputStreamControllerRef.current = controller
+      },
+      cancel: () => {
+        if (inputStreamControllerRef.current === streamController) {
+          inputStreamControllerRef.current = null
+        }
+      },
+    })
+    const abort = new AbortController()
+    inputStreamAbortRef.current = abort
+    const options = {
+      method: 'POST',
+      body,
+      signal: abort.signal,
+      headers: { 'Content-Type': 'application/x-ndjson' },
+      duplex: 'half' as const,
+    } as RequestInit
+
+    void terminalFetch(
+      `/api/terminal/input-stream?sessionId=${encodeURIComponent(sessionId)}`,
+      options,
+    ).then((response) => {
+      if (!response.ok) throw new Error(`input stream failed: ${response.status}`)
+    }).catch(() => {
+      if (isUnmountedRef.current || sessionIdRef.current !== sessionId) return
+      inputStreamControllerRef.current = null
+      inputStreamFailedRef.current = true
+      // Continue with the compatibility POST path if streaming uploads are
+      // unavailable in this browser or are rejected by the proxy.
+      if (inputBufferRef.current) scheduleInputFlush()
+    })
+  }, [scheduleInputFlush, terminalFetch])
+
   // Fallback transport: authenticated HTTP output stream for networks that drop WebSockets.
   const startHttpSession = useCallback(async () => {
     try {
@@ -417,6 +513,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       sinceSeqRef.current = 0
       transportRef.current = 'http'
       setWsStatus('connected')
+      startInputStream(startBody.sessionId)
       safeFit()
       console.info('[Terminal] HTTP fallback selected', {
         sessionId: startBody.sessionId,
@@ -428,7 +525,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       setWsStatus('disconnected')
       startReconnectCountdown()
     }
-  }, [authedFetch, runOutputStream, safeFit, startReconnectCountdown])
+  }, [authedFetch, runOutputStream, safeFit, startInputStream, startReconnectCountdown])
 
   const connect = useCallback(async () => {
     if (isUnmountedRef.current || connectingRef.current) return

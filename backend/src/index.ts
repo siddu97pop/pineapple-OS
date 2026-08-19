@@ -164,6 +164,56 @@ app.post('/api/terminal/input', requireTerminalSession, (req, res) => {
   res.json({ ok: true })
 })
 
+// Streaming HTTP fallback input. The browser keeps one chunked request open
+// and sends newline-delimited control frames, avoiding a request and CORS
+// preflight for every key when WebSockets are unavailable.
+app.post('/api/terminal/input-stream', requireTerminalSession, (req, res) => {
+  const sessionId = terminalSessionId(req)
+  if (!sessionId) {
+    res.status(400).json({ error: 'sessionId is required' })
+    return
+  }
+
+  let buffer = ''
+  let frameCount = 0
+  const openedAt = Date.now()
+  const handleFrame = (line: string) => {
+    if (!line.trim()) return
+    try {
+      const message = JSON.parse(line)
+      if (message.type === 'input' && typeof message.data === 'string') {
+        frameCount += 1
+        sendTerminalInput(sessionId, message.data)
+      } else if (message.type === 'resize' && message.cols > 0 && message.rows > 0) {
+        frameCount += 1
+        resizeTerminal(sessionId, Number(message.cols), Number(message.rows))
+      }
+    } catch {}
+  }
+
+  req.setEncoding('utf8')
+  console.log('[HTTP-PTY] input stream open', { sessionId })
+  req.on('data', (chunk: string) => {
+    buffer += chunk
+    const lines = buffer.split(/\r?\n/)
+    buffer = lines.pop() || ''
+    for (const line of lines) handleFrame(line)
+  })
+  req.on('end', () => {
+    handleFrame(buffer)
+    console.log('[HTTP-PTY] input stream close', { sessionId, frameCount, lifetimeMs: Date.now() - openedAt })
+    if (!res.writableEnded) res.status(204).end()
+  })
+  req.on('aborted', () => {
+    console.log('[HTTP-PTY] input stream aborted', { sessionId, frameCount, lifetimeMs: Date.now() - openedAt })
+    if (!res.writableEnded) res.end()
+  })
+  req.on('error', () => {
+    console.log('[HTTP-PTY] input stream error', { sessionId, frameCount, lifetimeMs: Date.now() - openedAt })
+    if (!res.writableEnded) res.end()
+  })
+})
+
 app.post('/api/terminal/resize', requireTerminalSession, (req, res) => {
   const { sessionId, cols, rows } = req.body || {}
   if (typeof sessionId !== 'string') {
