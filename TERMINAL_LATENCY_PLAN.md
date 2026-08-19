@@ -153,17 +153,22 @@ all terminal connections.
   `PTY_MEMORY_MAX` and `PTY_TASKS_MAX` limits. The scope behavior was verified
   with an interactive node-pty smoke test.
 
-The full authenticated browser canary remains the final user-facing check after
-deployment because this session does not have Sid's login credentials.
+The full authenticated browser canary remains the final user-facing check because
+this session does not have Sid's login credentials.
 
-## Recommended execution order
+## Deployment result — 2026-08-19
 
-1. Phase 0 instrumentation and one authenticated browser reproduction.
-2. Phase 1 WebSocket fix, with a production canary and rollback.
-3. Phase 3 hidden-tab/rendering profile if typing is still slow on WS.
-4. Phase 2 SSE/capability-token fallback for networks where WS genuinely cannot
-   work.
-5. Phase 4 PTY resource isolation as a separate reliability project.
+- Commit `bcd9e9a` (`Optimize terminal transport and PTY isolation`) is pushed to
+  `origin/main`.
+- Backend deployed first and restarted cleanly at 06:19 UTC. Health returned
+  200, and the deployed process logged PTY scope limits plus first-output timing.
+- Frontend deployed to Vercel production deployment
+  `dpl_5Q4Eq1MiAUba5pMGtNLcuE2aiQDt`; the `pineapple.lexitools.tech` alias is
+  serving the new bundle.
+- Public checks passed: API health 200, unauthenticated terminal stream 401,
+  and the live frontend bundle contains the SSE/capability transport code.
 
-The implementation is ready for backend-first deployment and a logged-in
-browser check. No unrelated application areas were changed.
+The only remaining validation is Sid's logged-in browser canary: open a
+terminal, type and paste quickly, leave it idle, open a second terminal, and
+close one tab while confirming the other remains responsive. No unrelated
+application areas were changed.
