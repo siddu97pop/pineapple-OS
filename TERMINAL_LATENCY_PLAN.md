@@ -168,6 +168,21 @@ this session does not have Sid's login credentials.
 - Public checks passed: API health 200, unauthenticated terminal stream 401,
   and the live frontend bundle contains the SSE/capability transport code.
 
+## Follow-up latency fix — 2026-08-19
+
+Sid's authenticated test at 06:43 UTC reproduced the remaining problem: the
+server completed the WS upgrade and produced PTY output in 27 ms, but the
+browser closed the socket at 86 ms with no client message, so the UI selected
+HTTP fallback. The fallback was then serializing a network POST (including a
+CORS preflight) for typed input.
+
+Commit `7fbda3f` adds a persistent chunked NDJSON input request for the HTTP
+fallback. Input and resize frames now share one authenticated request for the
+life of the PTY; the old POST path remains a compatibility fallback if the
+browser or proxy rejects streaming uploads. Backend and frontend were redeployed
+successfully. The live bundle contains `input-stream`, `application/x-ndjson`,
+and `duplex`; the API preflight returns 204.
+
 The only remaining validation is Sid's logged-in browser canary: open a
 terminal, type and paste quickly, leave it idle, open a second terminal, and
 close one tab while confirming the other remains responsive. No unrelated
