@@ -10,6 +10,7 @@ type WsStatus = 'connecting' | 'connected' | 'disconnected'
 type Transport = 'ws' | 'http'
 
 const WS_CONNECT_TIMEOUT_MS = 4000
+const MAX_PENDING_OUTPUT_CHARS = 1_000_000
 
 // xterm renders to canvas and parses colours itself, so it cannot use CSS
 // variables directly. Resolve the active theme's tokens at construction time
@@ -57,12 +58,6 @@ interface TerminalProps {
   isActive?: boolean
 }
 
-interface PollResponse {
-  alive: boolean
-  nextSeq: number
-  events: Array<{ seq: number; data: string }>
-}
-
 export function Terminal({ className = '', isActive = true }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
@@ -77,6 +72,11 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
   const rafRef = useRef<number>()
   const inputBufferRef = useRef('')
   const inputInFlightRef = useRef(false)
+  const sessionCapabilityRef = useRef('')
+  const wsAttemptRef = useRef(0)
+  const isActiveRef = useRef(isActive)
+  const pendingOutputRef = useRef<string[]>([])
+  const pendingOutputCharsRef = useRef(0)
   const isUnmountedRef = useRef(false)
   const connectRef = useRef<(() => Promise<void>) | null>(null)
   const connectingRef = useRef(false)
@@ -96,6 +96,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
   }, [])
 
   const disconnectWs = useCallback(() => {
+    wsAttemptRef.current += 1
     const ws = wsRef.current
     if (!ws) return
     ws.onopen = null
@@ -117,6 +118,34 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     })
   }, [])
 
+  const terminalFetch = useCallback(async (path: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers || {})
+    headers.set('Content-Type', 'application/json')
+    if (sessionCapabilityRef.current) {
+      headers.set('X-Terminal-Capability', sessionCapabilityRef.current)
+    } else if (tokenRef.current) {
+      // Compatibility with older backend/frontend bundles during rollout.
+      headers.set('Authorization', `Bearer ${tokenRef.current}`)
+    }
+    return fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers,
+    })
+  }, [])
+
+  const writeOutput = useCallback((data: string) => {
+    if (!isActiveRef.current) {
+      pendingOutputRef.current.push(data)
+      pendingOutputCharsRef.current += data.length
+      while (pendingOutputCharsRef.current > MAX_PENDING_OUTPUT_CHARS && pendingOutputRef.current.length > 0) {
+        const removed = pendingOutputRef.current.shift() || ''
+        pendingOutputCharsRef.current -= removed.length
+      }
+      return
+    }
+    xtermRef.current?.write(data)
+  }, [])
+
   const sendResize = useCallback(async () => {
     const term = xtermRef.current
     if (!term) return
@@ -132,12 +161,12 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     const sessionId = sessionIdRef.current
     if (!sessionId) return
     try {
-      await authedFetch('/api/terminal/resize', {
+      await terminalFetch('/api/terminal/resize', {
         method: 'POST',
         body: JSON.stringify({ sessionId, cols, rows }),
       })
     } catch {}
-  }, [authedFetch])
+  }, [terminalFetch])
 
   const safeFit = useCallback(() => {
     const container = containerRef.current
@@ -162,14 +191,14 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     inputBufferRef.current = ''
     inputInFlightRef.current = true
     try {
-      await authedFetch('/api/terminal/input', {
+      await terminalFetch('/api/terminal/input', {
         method: 'POST',
         body: JSON.stringify({ sessionId, data: payload }),
       })
     } catch {}
     inputInFlightRef.current = false
     if (inputBufferRef.current) void flushInput()
-  }, [authedFetch])
+  }, [terminalFetch])
 
   const sendInput = useCallback((data: string) => {
     const ws = wsRef.current
@@ -188,12 +217,13 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     sessionIdRef.current = null
     sinceSeqRef.current = 0
     try {
-      await authedFetch('/api/terminal/stop', {
+      await terminalFetch('/api/terminal/stop', {
         method: 'POST',
         body: JSON.stringify({ sessionId }),
       })
     } catch {}
-  }, [authedFetch, stopPolling])
+    sessionCapabilityRef.current = ''
+  }, [terminalFetch, stopPolling])
 
   const startReconnectCountdown = useCallback(() => {
     if (isUnmountedRef.current) return
@@ -218,11 +248,15 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
   // false if it fails to open within the timeout (caller falls back to HTTP).
   const tryWebSocket = useCallback((token: string) => {
     return new Promise<boolean>((resolve) => {
+      const attemptId = ++wsAttemptRef.current
+      const startedAt = performance.now()
       let settled = false
+      let firstMessageAt: number | null = null
       let ws: WebSocket
       try {
         ws = new WebSocket(`${WS_URL}/terminal?token=${encodeURIComponent(token)}`)
       } catch {
+        console.warn('[Terminal] WS construct failed', { attemptId })
         resolve(false)
         return
       }
@@ -230,13 +264,23 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       const failTimer = window.setTimeout(() => {
         if (settled) return
         settled = true
+        ws.onopen = null
+        ws.onmessage = null
+        ws.onerror = null
         ws.onclose = null
-        ws.close()
+        try { ws.close(1000, 'timeout') } catch {}
+        console.warn('[Terminal] WS timeout', {
+          attemptId,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        })
         resolve(false)
       }, WS_CONNECT_TIMEOUT_MS)
 
       ws.onopen = () => {
-        if (settled) return
+        if (settled || attemptId !== wsAttemptRef.current) {
+          try { ws.close(1000, 'stale') } catch {}
+          return
+        }
         settled = true
         clearTimeout(failTimer)
         if (isUnmountedRef.current) {
@@ -247,15 +291,34 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
         wsRef.current = ws
         transportRef.current = 'ws'
         setWsStatus('connected')
+        console.info('[Terminal] WS open', {
+          attemptId,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        })
         safeFit()
         resolve(true)
       }
 
       ws.onmessage = (event) => {
-        xtermRef.current?.write(event.data as string)
+        if (firstMessageAt === null) {
+          firstMessageAt = performance.now()
+          console.info('[Terminal] WS first output', {
+            attemptId,
+            elapsedMs: Math.round(firstMessageAt - startedAt),
+          })
+        }
+        if (typeof event.data === 'string') writeOutput(event.data)
       }
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        console.warn('[Terminal] WS close', {
+          attemptId,
+          code: event.code,
+          reason: event.reason,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          opened: settled,
+          firstOutputMs: firstMessageAt === null ? null : Math.round(firstMessageAt - startedAt),
+        })
         if (!settled) {
           settled = true
           clearTimeout(failTimer)
@@ -269,62 +332,103 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       }
 
       ws.onerror = () => {
+        console.warn('[Terminal] WS error', {
+          attemptId,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        })
         // onclose fires after onerror — handled there
       }
     })
-  }, [safeFit, startReconnectCountdown])
+  }, [safeFit, startReconnectCountdown, writeOutput])
 
-  const runPollLoop = useCallback(async (sessionId: string) => {
+  const runOutputStream = useCallback(async (sessionId: string) => {
     if (isUnmountedRef.current) return
     stopPolling()
     const controller = new AbortController()
     pollAbortRef.current = controller
 
-    while (!isUnmountedRef.current && sessionIdRef.current === sessionId) {
-      try {
-        const resp = await authedFetch(
-          `/api/terminal/poll?sessionId=${encodeURIComponent(sessionId)}&since=${sinceSeqRef.current}&waitMs=25000`,
-          { method: 'GET', signal: controller.signal },
-        )
-        if (!resp.ok) throw new Error(`poll failed: ${resp.status}`)
-        const body = await resp.json() as PollResponse
+    try {
+      const resp = await terminalFetch(
+        `/api/terminal/stream?sessionId=${encodeURIComponent(sessionId)}&since=${sinceSeqRef.current}`,
+        { method: 'GET', signal: controller.signal },
+      )
+      if (!resp.ok) throw new Error(`stream failed: ${resp.status}`)
+      if (!resp.body) throw new Error('stream body unavailable')
 
-        for (const evt of body.events) {
-          xtermRef.current?.write(evt.data)
-        }
-        sinceSeqRef.current = body.nextSeq
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let terminalEnded = false
 
-        if (!body.alive) {
-          throw new Error('terminal session ended')
+      const consumeBlock = (block: string) => {
+        let eventName = 'message'
+        const dataLines: string[] = []
+        for (const rawLine of block.split(/\r?\n/)) {
+          if (rawLine.startsWith('event:')) eventName = rawLine.slice(6).trim()
+          else if (rawLine.startsWith('data:')) dataLines.push(rawLine.slice(5).trimStart())
         }
-      } catch {
-        if (controller.signal.aborted || isUnmountedRef.current || sessionIdRef.current !== sessionId) return
-        setWsStatus('disconnected')
-        await stopHttpSession()
-        startReconnectCountdown()
-        return
+        if (eventName === 'output' && dataLines.length > 0) {
+          const event = JSON.parse(dataLines.join('\n')) as { seq: number; data: string }
+          writeOutput(event.data)
+          sinceSeqRef.current = Math.max(sinceSeqRef.current, event.seq)
+        } else if (eventName === 'exit') {
+          terminalEnded = true
+        }
       }
-    }
-  }, [authedFetch, startReconnectCountdown, stopPolling, stopHttpSession])
 
-  // Fallback transport: HTTP long-polling (for networks that drop WebSockets).
+      while (!controller.signal.aborted && !isUnmountedRef.current && !terminalEnded) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const blocks = buffer.split(/\r?\n\r?\n/)
+        buffer = blocks.pop() || ''
+        for (const block of blocks) {
+          if (block.trim() && !block.trimStart().startsWith(':')) consumeBlock(block)
+          if (terminalEnded) break
+        }
+      }
+      if (buffer.trim() && !buffer.trimStart().startsWith(':')) consumeBlock(buffer)
+      if (!terminalEnded && !controller.signal.aborted && !isUnmountedRef.current) {
+        throw new Error('terminal stream ended unexpectedly')
+      }
+    } catch {
+      if (controller.signal.aborted || isUnmountedRef.current || sessionIdRef.current !== sessionId) return
+      setWsStatus('disconnected')
+      await stopHttpSession()
+      startReconnectCountdown()
+      return
+    }
+
+    if (!isUnmountedRef.current && sessionIdRef.current === sessionId) {
+      setWsStatus('disconnected')
+      await stopHttpSession()
+      startReconnectCountdown()
+    }
+  }, [startReconnectCountdown, stopHttpSession, stopPolling, terminalFetch, writeOutput])
+
+  // Fallback transport: authenticated HTTP output stream for networks that drop WebSockets.
   const startHttpSession = useCallback(async () => {
     try {
       const startResp = await authedFetch('/api/terminal/start', { method: 'POST' })
       if (!startResp.ok) throw new Error(`start failed: ${startResp.status}`)
-      const startBody = await startResp.json() as { sessionId: string }
+      const startBody = await startResp.json() as { sessionId: string; capability?: string }
       sessionIdRef.current = startBody.sessionId
+      sessionCapabilityRef.current = startBody.capability || ''
       sinceSeqRef.current = 0
       transportRef.current = 'http'
       setWsStatus('connected')
       safeFit()
-      void runPollLoop(startBody.sessionId)
+      console.info('[Terminal] HTTP fallback selected', {
+        sessionId: startBody.sessionId,
+        capability: !!startBody.capability,
+      })
+      void runOutputStream(startBody.sessionId)
     } catch {
       if (isUnmountedRef.current) return
       setWsStatus('disconnected')
       startReconnectCountdown()
     }
-  }, [authedFetch, runPollLoop, safeFit, startReconnectCountdown])
+  }, [authedFetch, runOutputStream, safeFit, startReconnectCountdown])
 
   const connect = useCallback(async () => {
     if (isUnmountedRef.current || connectingRef.current) return
@@ -335,6 +439,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       clearInterval(countdownTimerRef.current)
       stopPolling()
       disconnectWs()
+      if (sessionIdRef.current) await stopHttpSession()
 
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token || isUnmountedRef.current) return
@@ -346,7 +451,7 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
     } finally {
       connectingRef.current = false
     }
-  }, [disconnectWs, startHttpSession, stopPolling, tryWebSocket])
+  }, [disconnectWs, startHttpSession, stopHttpSession, stopPolling, tryWebSocket])
 
   useEffect(() => {
     connectRef.current = connect
@@ -379,6 +484,16 @@ export function Terminal({ className = '', isActive = true }: TerminalProps) {
       return () => cancelAnimationFrame(id)
     }
   }, [isActive, safeFit])
+
+  useEffect(() => {
+    isActiveRef.current = isActive
+    if (isActive && pendingOutputRef.current.length > 0) {
+      const pending = pendingOutputRef.current.join('')
+      pendingOutputRef.current = []
+      pendingOutputCharsRef.current = 0
+      xtermRef.current?.write(pending)
+    }
+  }, [isActive])
 
   useEffect(() => {
     if (!containerRef.current) return

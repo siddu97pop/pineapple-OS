@@ -1,7 +1,10 @@
-import { IPty, spawn } from 'node-pty'
+import { IPty } from 'node-pty'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
+import crypto from 'crypto'
+import type { Response } from 'express'
 import { buildPtyEnv } from './ptyEnv'
+import { ptyScopeConfig, spawnPty } from './ptySpawn'
 
 const MAX_PTY_SESSIONS = parseInt(process.env.MAX_PTY_SESSIONS || '5')
 const OBSIDIAN_PATH = process.env.CLAUDE_MD_PATH
@@ -18,11 +21,13 @@ interface OutputChunk {
 
 interface TerminalSession {
   id: string
+  capabilityHash: string
   pty: IPty
   chunks: OutputChunk[]
   nextSeq: number
   alive: boolean
   waiters: Set<PollWaiter>
+  streams: Set<StreamClient>
   lastActivityAt: number
 }
 
@@ -36,6 +41,11 @@ interface PollResult {
   alive: boolean
   nextSeq: number
   events: OutputChunk[]
+}
+
+interface StreamClient {
+  response: Response
+  heartbeat: NodeJS.Timeout
 }
 
 const sessions = new Map<string, TerminalSession>()
@@ -55,6 +65,37 @@ setInterval(() => {
 function trimChunks(session: TerminalSession): void {
   if (session.chunks.length > MAX_BUFFERED_CHUNKS) {
     session.chunks.splice(0, session.chunks.length - MAX_BUFFERED_CHUNKS)
+  }
+}
+
+function hashCapability(capability: string): Buffer {
+  return crypto.createHash('sha256').update(capability).digest()
+}
+
+function writeSse(response: Response, event: string, data: unknown): void {
+  if (response.writableEnded) return
+  response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+}
+
+function removeStream(session: TerminalSession, stream: StreamClient, endResponse: boolean): void {
+  if (!session.streams.delete(stream)) return
+  clearInterval(stream.heartbeat)
+  if (endResponse && !stream.response.writableEnded) stream.response.end()
+}
+
+function closeStreams(session: TerminalSession): void {
+  for (const stream of Array.from(session.streams)) {
+    removeStream(session, stream, true)
+  }
+}
+
+function broadcastStreamEvent(session: TerminalSession, event: OutputChunk): void {
+  for (const stream of Array.from(session.streams)) {
+    if (stream.response.writableEnded) {
+      removeStream(session, stream, false)
+      continue
+    }
+    writeSse(stream.response, 'output', event)
   }
 }
 
@@ -85,13 +126,14 @@ function flushWaiters(session: TerminalSession): void {
   }
 }
 
-export function startTerminalSession(): { sessionId: string } {
+export function startTerminalSession(): { sessionId: string; capability: string } {
   if (sessions.size >= MAX_PTY_SESSIONS) {
     throw new Error('Session limit reached')
   }
 
   const id = uuidv4()
-  const pty = spawn('/bin/bash', [], {
+  const capability = crypto.randomBytes(32).toString('base64url')
+  const pty = spawnPty(id, {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,
@@ -101,17 +143,20 @@ export function startTerminalSession(): { sessionId: string } {
 
   const session: TerminalSession = {
     id,
+    capabilityHash: hashCapability(capability).toString('hex'),
     pty,
     chunks: [],
     nextSeq: 1,
     alive: true,
     waiters: new Set(),
+    streams: new Set(),
     lastActivityAt: Date.now(),
   }
 
   console.log('[HTTP-PTY] started', {
     sessionId: id,
     cwd: OBSIDIAN_PATH,
+    scope: ptyScopeConfig(),
   })
 
   // node-pty rethrows non-EIO/EAGAIN socket errors as uncaught exceptions
@@ -123,10 +168,12 @@ export function startTerminalSession(): { sessionId: string } {
   })
 
   pty.onData((data) => {
-    session.chunks.push({ seq: session.nextSeq, data })
+    const event = { seq: session.nextSeq, data }
+    session.chunks.push(event)
     session.nextSeq += 1
     trimChunks(session)
     flushWaiters(session)
+    broadcastStreamEvent(session, event)
   })
 
   pty.onExit(({ exitCode, signal }) => {
@@ -143,6 +190,7 @@ export function startTerminalSession(): { sessionId: string } {
     session.nextSeq += 1
     trimChunks(session)
     flushWaiters(session)
+    closeStreams(session)
     // Keep the closed session briefly so the client can read final output.
     setTimeout(() => {
       sessions.delete(id)
@@ -150,7 +198,48 @@ export function startTerminalSession(): { sessionId: string } {
   })
 
   sessions.set(id, session)
-  return { sessionId: id }
+  return { sessionId: id, capability }
+}
+
+export function authorizeTerminalSession(sessionId: string, capability: string): boolean {
+  const session = sessions.get(sessionId)
+  if (!session || !session.alive || !capability) return false
+  const expected = Buffer.from(session.capabilityHash, 'hex')
+  const actual = hashCapability(capability)
+  if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return false
+  session.lastActivityAt = Date.now()
+  return true
+}
+
+export function openTerminalStream(sessionId: string, since: number, response: Response): boolean {
+  const session = sessions.get(sessionId)
+  if (!session) return false
+
+  const stream: StreamClient = {
+    response,
+    heartbeat: setInterval(() => {
+      if (response.writableEnded) {
+        removeStream(session, stream, false)
+        return
+      }
+      session.lastActivityAt = Date.now()
+      response.write(': ping\n\n')
+    }, 20_000),
+  }
+
+  session.streams.add(stream)
+  response.on('close', () => removeStream(session, stream, false))
+  response.on('error', () => removeStream(session, stream, false))
+  response.write(': connected\n\n')
+
+  for (const event of session.chunks) {
+    if (event.seq > normalizeSince(since)) writeSse(response, 'output', event)
+  }
+  if (!session.alive) {
+    writeSse(response, 'exit', { alive: false })
+    removeStream(session, stream, true)
+  }
+  return true
 }
 
 export async function pollTerminalSession(
@@ -213,6 +302,7 @@ export function stopTerminalSession(sessionId: string): void {
   console.log('[HTTP-PTY] stopping', { sessionId })
   session.alive = false
   flushWaiters(session)
+  closeStreams(session)
   try {
     session.pty.kill('SIGHUP')
   } catch {}

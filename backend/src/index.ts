@@ -12,6 +12,8 @@ import {
   sendTerminalInput,
   resizeTerminal,
   stopTerminalSession,
+  authorizeTerminalSession,
+  openTerminalStream,
 } from './terminalHttp'
 import { initFileWatcher, addSSEClient } from './fileWatch'
 import { getStatusHandler, getSyncthingHandler } from './status'
@@ -86,6 +88,25 @@ app.get('/api/checkpoints', requireAuth, getCheckpointsHandler)
 app.get('/api/checkpoints/stream', requireAuth, streamCheckpointsHandler)
 app.post('/api/checkpoints/:id', requireAuth, updateCheckpointHandler)
 
+function terminalSessionId(req: express.Request): string {
+  const bodyId = (req.body as any)?.sessionId
+  const queryId = (req.query as any)?.sessionId
+  return typeof bodyId === 'string' ? bodyId : typeof queryId === 'string' ? queryId : ''
+}
+
+// New clients use a short-lived per-terminal capability after the initial JWT-
+// authenticated start. Keep JWT fallback compatibility for older frontend
+// bundles during a rolling deploy.
+function requireTerminalSession(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const capability = req.headers['x-terminal-capability']
+  const value = Array.isArray(capability) ? capability[0] : capability
+  if (typeof value === 'string' && authorizeTerminalSession(terminalSessionId(req), value)) {
+    next()
+    return
+  }
+  requireAuth(req, res, next)
+}
+
 // HTTP terminal fallback for environments that aggressively drop WebSockets.
 app.post('/api/terminal/start', requireAuth, (_req, res) => {
   try {
@@ -101,7 +122,23 @@ app.post('/api/terminal/start', requireAuth, (_req, res) => {
   }
 })
 
-app.get('/api/terminal/poll', requireAuth, async (req, res) => {
+app.get('/api/terminal/stream', requireTerminalSession, (req, res) => {
+  const sessionId = terminalSessionId(req)
+  const since = Number((req.query as any)?.since || '0')
+  if (!sessionId) {
+    res.status(400).json({ error: 'sessionId is required' })
+    return
+  }
+  res.status(200)
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache, no-transform')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('X-Accel-Buffering', 'no')
+  res.flushHeaders()
+  if (!openTerminalStream(sessionId, since, res)) res.end()
+})
+
+app.get('/api/terminal/poll', requireTerminalSession, async (req, res) => {
   const sessionId = String((req.query as any)?.sessionId || '')
   const since = Number((req.query as any)?.since || '0')
   const waitMs = Number((req.query as any)?.waitMs || '25000')
@@ -113,7 +150,7 @@ app.get('/api/terminal/poll', requireAuth, async (req, res) => {
   res.json(body)
 })
 
-app.post('/api/terminal/input', requireAuth, (req, res) => {
+app.post('/api/terminal/input', requireTerminalSession, (req, res) => {
   const { sessionId, data } = req.body || {}
   if (typeof sessionId !== 'string' || typeof data !== 'string') {
     res.status(400).json({ error: 'sessionId and data are required' })
@@ -127,7 +164,7 @@ app.post('/api/terminal/input', requireAuth, (req, res) => {
   res.json({ ok: true })
 })
 
-app.post('/api/terminal/resize', requireAuth, (req, res) => {
+app.post('/api/terminal/resize', requireTerminalSession, (req, res) => {
   const { sessionId, cols, rows } = req.body || {}
   if (typeof sessionId !== 'string') {
     res.status(400).json({ error: 'sessionId is required' })
@@ -141,7 +178,7 @@ app.post('/api/terminal/resize', requireAuth, (req, res) => {
   res.json({ ok: true })
 })
 
-app.post('/api/terminal/stop', requireAuth, (req, res) => {
+app.post('/api/terminal/stop', requireTerminalSession, (req, res) => {
   const { sessionId } = req.body || {}
   if (typeof sessionId !== 'string') {
     res.status(400).json({ error: 'sessionId is required' })
