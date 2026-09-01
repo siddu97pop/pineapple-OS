@@ -23,6 +23,7 @@ import { getVaultTreeHandler, getVaultFileHandler, saveVaultFileHandler } from '
 import { getMemoryHandler } from './memory'
 import { getVaultGraphHandler, rebuildVaultGraphHandler, getGraphStatusHandler } from './graph'
 import { vaultSearchHandler } from './vectorSearch'
+import { vaultAskHandler } from './vaultAsk'
 import { getAgents, killAgent } from './agents'
 import {
   initCheckpointWatcher,
@@ -72,6 +73,7 @@ app.post('/api/vault/graph/rebuild', requireAuth, rebuildVaultGraphHandler)
 app.get('/api/vault/graph/status', requireAuth, getGraphStatusHandler)
 
 app.post('/api/vault/search', requireAuth, vaultSearchHandler)
+app.post('/api/vault/ask', requireAuth, vaultAskHandler)
 
 app.get('/api/agents', requireAuth, (_req, res) => {
   res.json(getAgents())
