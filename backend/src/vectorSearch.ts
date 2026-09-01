@@ -82,3 +82,42 @@ export async function vaultSearchHandler(req: Request, res: Response): Promise<v
     res.status(500).json({ error: 'vault search failed' })
   }
 }
+
+export interface RelatedHit {
+  path: string
+  heading: string | null
+  content: string
+  similarity: number
+}
+
+/**
+ * Notes semantically nearest to `path`, one row per note, excluding itself.
+ * These are the suggestions the wikilink graph cannot produce — notes about the
+ * same thing that were never linked or co-tagged.
+ */
+export async function relatedNotes(path: string, limit = DEFAULT_LIMIT): Promise<RelatedHit[]> {
+  const { data, error } = await db().rpc('related_vault_notes', {
+    source_path: path,
+    match_count: Math.min(Math.max(limit, 1), 25),
+  })
+  if (error) throw new Error(`related notes failed: ${error.message}`)
+  return (data ?? []) as RelatedHit[]
+}
+
+export async function vaultRelatedHandler(req: Request, res: Response): Promise<void> {
+  const path = typeof req.query.path === 'string' ? req.query.path.trim() : ''
+  if (!path) {
+    res.status(400).json({ error: 'path is required' })
+    return
+  }
+  const limitRaw = Number(req.query.limit)
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : DEFAULT_LIMIT
+
+  try {
+    const results = await relatedNotes(path, limit)
+    res.json({ path, count: results.length, results })
+  } catch (err) {
+    console.error('[vectorSearch] related failed:', err)
+    res.status(500).json({ error: 'related notes failed' })
+  }
+}

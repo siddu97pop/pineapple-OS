@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject } from 'react-force-graph-2d'
-import { Search, RefreshCw } from 'lucide-react'
-import { getVaultGraph, rebuildVaultGraph, getGraphStatus, type VaultGraphData, type GraphNode } from '../lib/api'
+import { Search, RefreshCw, Sparkles, X } from 'lucide-react'
+import {
+  getVaultGraph, rebuildVaultGraph, getGraphStatus, searchVault, getRelatedNotes,
+  type VaultGraphData, type GraphNode, type SearchHit, type RelatedHit,
+} from '../lib/api'
 import { cssRGB } from '../lib/graphColors'
 
 // Theme-consistent categorical palette — pulled from the CSS variables so it
@@ -38,6 +41,13 @@ export function GraphView({ onOpenNote, className = '' }: GraphViewProps) {
   const [search, setSearch] = useState('')
   const [rebuilding, setRebuilding] = useState(false)
   const [dims, setDims] = useState({ width: 800, height: 600 })
+
+  // Semantic layer. `semanticPaths` drives node highlighting; the panel shows
+  // either search hits or the related notes for a selected node.
+  const [semantic, setSemantic] = useState(false)
+  const [panelBusy, setPanelBusy] = useState(false)
+  const [hits, setHits] = useState<SearchHit[] | null>(null)
+  const [related, setRelated] = useState<{ path: string; results: RelatedHit[] } | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const fgRef = useRef<ForceGraphMethods<FGNode, LinkObject> | undefined>(undefined)
@@ -100,6 +110,42 @@ export function GraphView({ onOpenNote, className = '' }: GraphViewProps) {
     fgRef.current.zoomToFit(600, 80, (n: FGNode) => n.id === searchMatchId)
   }, [searchMatchId])
 
+  const semanticPaths = useMemo(() => {
+    if (hits) return new Set(hits.map(h => h.path))
+    if (related) return new Set([related.path, ...related.results.map(r => r.path)])
+    return null
+  }, [hits, related])
+
+  const runSemanticSearch = useCallback(async () => {
+    const q = search.trim()
+    if (!q) return
+    setPanelBusy(true)
+    setRelated(null)
+    try {
+      const { results } = await searchVault(q, 10)
+      setHits(results)
+    } catch {
+      setError('Semantic search failed')
+    } finally {
+      setPanelBusy(false)
+    }
+  }, [search])
+
+  const showRelated = useCallback(async (path: string) => {
+    setPanelBusy(true)
+    setHits(null)
+    try {
+      const { results } = await getRelatedNotes(path, 8)
+      setRelated({ path, results })
+    } catch {
+      setError('Related notes failed')
+    } finally {
+      setPanelBusy(false)
+    }
+  }, [])
+
+  const clearPanel = useCallback(() => { setHits(null); setRelated(null) }, [])
+
   const graphData = useMemo(() => {
     if (!graph) return { nodes: [], links: [] }
     return {
@@ -134,11 +180,30 @@ export function GraphView({ onOpenNote, className = '' }: GraphViewProps) {
           <Search size={12} className="text-slate-600 flex-shrink-0" />
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search notes..."
+            onChange={e => { setSearch(e.target.value); if (!semantic) clearPanel() }}
+            onKeyDown={e => { if (e.key === 'Enter' && semantic) runSemanticSearch() }}
+            placeholder={semantic ? 'Ask by meaning, then Enter...' : 'Search notes...'}
             className="bg-transparent text-xs font-mono text-slate-300 placeholder:text-slate-600 outline-none w-full"
           />
         </div>
+        <button
+          onClick={() => { setSemantic(s => !s); clearPanel() }}
+          title={semantic
+            ? 'Semantic search: finds notes by meaning (Enter to run)'
+            : 'Name search: matches note titles as you type'}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-mono transition-all"
+          style={semantic ? {
+            background: 'rgb(var(--c-accent) / 0.1)',
+            color: 'rgb(var(--c-accent))',
+            border: '1px solid rgb(var(--c-accent) / 0.25)',
+          } : {
+            color: 'rgb(var(--c-faint))',
+            border: '1px solid rgb(var(--c-border))',
+          }}
+        >
+          <Sparkles size={11} />
+          {semantic ? 'meaning' : 'name'}
+        </button>
         {graph && (
           <span className="text-[10px] font-mono text-slate-600">
             {graph.meta.nodeCount} nodes · {graph.meta.edgeCount} edges · built {timeAgo(graph.meta.builtAt)}
@@ -181,6 +246,7 @@ export function GraphView({ onOpenNote, className = '' }: GraphViewProps) {
             nodeRelSize={3}
             nodeVal={(n: FGNode) => 1 + Math.sqrt(n.degree)}
             nodeColor={(n: FGNode) => {
+              if (semanticPaths) return semanticPaths.has(n.id) ? (communityColors.get(n.community) ?? '#888') : dimColor
               if (neighborIds && !neighborIds.has(n.id)) return dimColor
               if (searchMatchId && n.id !== searchMatchId) return dimColor
               return communityColors.get(n.community) ?? '#888'
@@ -193,9 +259,70 @@ export function GraphView({ onOpenNote, className = '' }: GraphViewProps) {
             }}
             linkWidth={1}
             onNodeHover={(n: FGNode | null) => setHoverId(n?.id ?? null)}
-            onNodeClick={(n: FGNode) => { if (!n.id.startsWith('tag:')) onOpenNote(n.id) }}
+            onNodeClick={(n: FGNode, ev: MouseEvent) => {
+              if (n.id.startsWith('tag:')) return
+              if (ev.altKey || ev.metaKey) showRelated(n.id)
+              else onOpenNote(n.id)
+            }}
             cooldownTicks={100}
           />
+        )}
+
+        {(hits || related || panelBusy) && (
+          <div
+            className="absolute top-2 right-2 bottom-2 w-72 overflow-y-auto rounded-md p-2 text-xs font-mono"
+            style={{
+              background: 'rgb(var(--c-bg) / 0.92)',
+              border: '1px solid rgb(var(--c-border))',
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="section-label">
+                {related ? 'related notes' : 'semantic hits'}
+              </span>
+              <button onClick={clearPanel} className="text-slate-600 hover:text-slate-300">
+                <X size={12} />
+              </button>
+            </div>
+
+            {related && (
+              <p className="text-[10px] text-slate-600 mb-2 break-all">
+                near {related.path}
+              </p>
+            )}
+            {panelBusy && <p className="text-slate-600">Searching...</p>}
+            {!panelBusy && (hits ?? related?.results ?? []).length === 0 && (
+              <p className="text-slate-600">No matches.</p>
+            )}
+
+            {!panelBusy && (hits ?? related?.results ?? []).map((h, i) => (
+              <button
+                key={`${h.path}-${i}`}
+                onClick={() => onOpenNote(h.path)}
+                className="w-full text-left mb-2 pb-2 border-b border-navy-600/30 hover:opacity-80 transition-opacity"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-slate-300 truncate">
+                    {h.path.split('/').pop()}
+                  </span>
+                  <span style={{ color: 'rgb(var(--c-accent))' }}>
+                    {h.similarity.toFixed(2)}
+                  </span>
+                </div>
+                {h.heading && (
+                  <div className="text-[10px] text-slate-500 truncate">{h.heading}</div>
+                )}
+                <div className="text-[10px] text-slate-600 line-clamp-2 mt-0.5">
+                  {h.content.slice(0, 120)}
+                </div>
+              </button>
+            ))}
+
+            <p className="text-[10px] text-slate-600 mt-1">
+              Alt-click a node for its related notes.
+            </p>
+          </div>
         )}
       </div>
     </div>

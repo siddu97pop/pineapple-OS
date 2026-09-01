@@ -22,7 +22,7 @@ import { getSessionsHandler } from './sessions'
 import { getVaultTreeHandler, getVaultFileHandler, saveVaultFileHandler } from './vault'
 import { getMemoryHandler } from './memory'
 import { getVaultGraphHandler, rebuildVaultGraphHandler, getGraphStatusHandler } from './graph'
-import { vaultSearchHandler } from './vectorSearch'
+import { vaultSearchHandler, vaultRelatedHandler } from './vectorSearch'
 import { vaultAskHandler } from './vaultAsk'
 import { getAgents, killAgent } from './agents'
 import {
@@ -73,6 +73,7 @@ app.post('/api/vault/graph/rebuild', requireAuth, rebuildVaultGraphHandler)
 app.get('/api/vault/graph/status', requireAuth, getGraphStatusHandler)
 
 app.post('/api/vault/search', requireAuth, vaultSearchHandler)
+app.get('/api/vault/related', requireAuth, vaultRelatedHandler)
 app.post('/api/vault/ask', requireAuth, vaultAskHandler)
 
 app.get('/api/agents', requireAuth, (_req, res) => {

@@ -244,3 +244,37 @@ export async function getCheckpointsSSEUrl(): Promise<string> {
   const token = session?.access_token || ''
   return `${BASE_URL}/api/checkpoints/stream?token=${encodeURIComponent(token)}`
 }
+
+// ---------------------------------------------------------------- semantic search
+
+export interface SearchHit {
+  path: string
+  heading: string | null
+  chunk_index: number
+  content: string
+  tags: string[]
+  similarity: number
+}
+
+export interface RelatedHit {
+  path: string
+  heading: string | null
+  content: string
+  similarity: number
+}
+
+export async function searchVault(query: string, limit = 8): Promise<{ results: SearchHit[]; ms: number }> {
+  const r = await authFetch('/api/vault/search', {
+    method: 'POST',
+    body: JSON.stringify({ query, limit }),
+  })
+  if (!r.ok) throw new Error('search failed')
+  return r.json()
+}
+
+export async function getRelatedNotes(path: string, limit = 8): Promise<{ results: RelatedHit[] }> {
+  const params = new URLSearchParams({ path, limit: String(limit) })
+  const r = await authFetch(`/api/vault/related?${params}`)
+  if (!r.ok) throw new Error('related notes failed')
+  return r.json()
+}
