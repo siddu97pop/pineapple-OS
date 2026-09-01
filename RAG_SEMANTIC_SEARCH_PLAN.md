@@ -8,7 +8,14 @@ status: planned
 
 # Pineapple OS — Semantic Vault Search (pgvector RAG)
 
-**Status:** Planned 2026-09-01 · not started
+**Status:** Phases 1–3 and 5 implemented and verified 2026-09-01; Phase 4 code-complete but
+unverified (no LLM API credit). Not yet deployed.
+Build log: [[2026-09-01-pineapple-rag-phase1]], [[2026-09-01-pineapple-rag-phase2]],
+[[2026-09-01-pineapple-rag-phase3-4-5]].
+
+> **Changed during build:** embeddings run **locally** via transformers.js
+> (`bge-small-en-v1.5`, **384 dims**), not Voyage — no API key existed, nothing leaves the
+> host, and it costs nothing. Re-embedding the corpus takes ~2.5 min, so this is reversible.
 **Builds on:** [[GRAPH_VIEW_PLAN]] (the vault walker this reuses)
 
 ---
