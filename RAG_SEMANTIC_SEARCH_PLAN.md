@@ -362,6 +362,30 @@ order of 8 chunks of context.
 
 ---
 
+## 8b. Phase 4 is parked until local inference (2026-09-01)
+
+`/api/vault/ask` is committed and typechecks, but has never been run: the Anthropic key on
+the VPS is valid and unfunded, OpenRouter is exhausted, and a Claude subscription bills
+separately from the Messages API so it cannot fund these calls.
+
+**No API credit is being bought.** A **Mac Mini M6 arrives end of September 2026**, which
+will run a simple local model exposing an API key. Paying per token now would spend on a
+gap that closes in weeks, and local inference keeps vault text on Sid's own hardware —
+consistent with the Phase 1 decision to embed locally.
+
+When it is live: point `ANTHROPIC_BASE_URL` at it (or swap the client in `vaultAsk.ts`) and
+run both Phase 4 tests. Note that a small local model is *more* likely to confabulate on a
+retrieval miss than Claude, so the refusal test matters more, not less, on that hardware.
+
+What was already verified without a provider: retrieval returns the full answer for an
+answerable question (0.688–0.754) and, for "what is my cat called", returns eight plainly
+irrelevant notes topping out at 0.504 with nothing fabricated. The prompt inputs are sound;
+the SDK call and the model's obedience to the refusal instruction are what remain untested.
+
+Phases 1–3 and 5 need no LLM and are unaffected.
+
+---
+
 ## 9. Known limits — state these rather than hide them
 
 1. **Bad at exact strings.** Trigger IDs, error codes, filenames. Keep grep; consider
