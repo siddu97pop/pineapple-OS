@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import fs from 'fs/promises'
 import { realpathSync } from 'fs'
 import path from 'path'
+import { collectMarkdownFiles } from './vaultWalk'
 
 const VAULT_ROOT = process.env.VAULT_ROOT
   || (process.env.CLAUDE_MD_PATH ? path.dirname(process.env.CLAUDE_MD_PATH) : '/data/obsidian')
@@ -175,4 +176,17 @@ export async function saveVaultFileHandler(req: Request, res: Response): Promise
   } catch {
     res.status(500).json({ error: 'Failed to write file' })
   }
+}
+
+// Every .md path in the vault — the markdown viewer resolves [[wikilinks]]
+// against this. Cached briefly: a full walk is ~0.3s and links rarely change.
+let notesCache: { at: number; paths: string[] } | null = null
+
+export async function getVaultNotesHandler(_req: Request, res: Response): Promise<void> {
+  if (!notesCache || Date.now() - notesCache.at > 60_000) {
+    const paths: string[] = []
+    await collectMarkdownFiles(VAULT_ROOT, '', paths)
+    notesCache = { at: Date.now(), paths }
+  }
+  res.json({ paths: notesCache.paths })
 }

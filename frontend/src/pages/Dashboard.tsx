@@ -54,7 +54,7 @@ type SidebarTab = 'memory' | 'files' | 'agents' | 'graph'
 function loadViewMode(): ViewMode {
   try {
     const v = localStorage.getItem(VIEW_MODE_KEY)
-    if (v === 'terminal' || v === 'graph') return v
+    if (v === 'terminal' || v === 'graph' || v === 'vault') return v
   } catch {}
   return 'terminal'
 }
@@ -100,6 +100,8 @@ function DesktopDashboard() {
   const dragStartWidthRef = useRef(0)
   const openFilesRef = useRef(openFiles)
   openFilesRef.current = openFiles
+  const viewModeRef = useRef(viewMode)
+  viewModeRef.current = viewMode
 
   const isTreeDraggingRef = useRef(false)
   const treeDragStartYRef = useRef(0)
@@ -185,9 +187,11 @@ function DesktopDashboard() {
   // Open a vault file in the viewer
   const handleOpenFile = useCallback(async (relPath: string) => {
     const existing = openFilesRef.current.findIndex(f => f.path === relPath)
+    // In the Vault view the file shows in the main pane, so leave the sidebar alone
+    const showInSidebar = viewModeRef.current !== 'vault'
     if (existing !== -1) {
       setActiveFileIdx(existing)
-      switchTab('files')
+      if (showInSidebar) switchTab('files')
       return
     }
 
@@ -199,7 +203,7 @@ function DesktopDashboard() {
       setActiveFileIdx(next.length - 1)
       return next
     })
-    switchTab('files')
+    if (showInSidebar) switchTab('files')
 
     try {
       const data = await getVaultFile(relPath)
@@ -258,6 +262,25 @@ function DesktopDashboard() {
           {viewMode === 'graph' && (
             <ErrorBoundary>
               <GraphView className="h-full" onOpenNote={handleOpenFile} />
+            </ErrorBoundary>
+          )}
+          {viewMode === 'vault' && (
+            <ErrorBoundary>
+              <div className="h-full flex gap-3 animate-fade-in">
+                <VaultTree
+                  openFilePath={activeFilePath}
+                  onOpenFile={handleOpenFile}
+                  className="w-64 flex-shrink-0 h-full"
+                />
+                <VaultEditor
+                  files={openFiles}
+                  activeIdx={activeFileIdx}
+                  onActivate={setActiveFileIdx}
+                  onClose={handleCloseFile}
+                  onQuickOpen={handleOpenFile}
+                  className="flex-1 min-w-0 h-full"
+                />
+              </div>
             </ErrorBoundary>
           )}
         </div>

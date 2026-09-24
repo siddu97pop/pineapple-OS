@@ -94,6 +94,12 @@ export async function getVaultFile(relPath: string): Promise<{ path: string; con
   return r.json()
 }
 
+export async function getVaultNotes(): Promise<{ paths: string[] }> {
+  const r = await authFetch('/api/vault/notes')
+  if (!r.ok) throw new Error('vault notes failed')
+  return r.json()
+}
+
 export async function saveVaultFile(relPath: string, content: string): Promise<{ ok: boolean }> {
   const r = await authFetch('/api/vault/file', {
     method: 'POST',

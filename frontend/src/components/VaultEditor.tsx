@@ -1,4 +1,5 @@
 import { FileText, GitBranch, BookOpen, ScrollText, X } from 'lucide-react'
+import { MarkdownViewer } from './MarkdownViewer'
 
 export interface OpenFile {
   path: string
@@ -112,12 +113,12 @@ export function VaultEditor({
 
       {/* Read-only content area */}
       {activeFile && (
-        <textarea
+        <MarkdownViewer
           key={activeFile.path}
-          className="flex-1 bg-transparent text-slate-300 font-mono text-xs p-3 resize-none outline-none border-none overflow-y-auto leading-relaxed cursor-default select-text"
-          value={activeFile.content}
-          readOnly
-          spellCheck={false}
+          path={activeFile.path}
+          content={activeFile.content}
+          onOpenNote={onQuickOpen}
+          className="flex-1"
         />
       )}
     </div>

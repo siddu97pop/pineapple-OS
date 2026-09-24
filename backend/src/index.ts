@@ -19,7 +19,7 @@ import { initFileWatcher, addSSEClient } from './fileWatch'
 import { getStatusHandler, getSyncthingHandler } from './status'
 import { getClaudeMdHandler, saveClaudeMdHandler } from './claudeMd'
 import { getSessionsHandler } from './sessions'
-import { getVaultTreeHandler, getVaultFileHandler, saveVaultFileHandler } from './vault'
+import { getVaultTreeHandler, getVaultFileHandler, saveVaultFileHandler, getVaultNotesHandler } from './vault'
 import { getMemoryHandler } from './memory'
 import { getVaultGraphHandler, rebuildVaultGraphHandler, getGraphStatusHandler } from './graph'
 import { vaultSearchHandler, vaultRelatedHandler } from './vectorSearch'
@@ -64,6 +64,7 @@ app.post('/api/claude-md', requireAuth, saveClaudeMdHandler)
 
 app.get('/api/vault/tree', requireAuth, getVaultTreeHandler)
 app.get('/api/vault/file', requireAuth, getVaultFileHandler)
+app.get('/api/vault/notes', requireAuth, getVaultNotesHandler)
 app.post('/api/vault/file', requireAuth, saveVaultFileHandler)
 
 app.get('/api/memory', requireAuth, getMemoryHandler)
