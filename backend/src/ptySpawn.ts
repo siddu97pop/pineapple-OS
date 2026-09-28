@@ -13,7 +13,10 @@ const SHELL_CMD = process.platform === 'darwin' ? ['/bin/zsh', '-l'] : ['/bin/ba
 
 export function spawnPty(sessionId: string, options: IPtyForkOptions): IPty {
   if (!PTY_SCOPE_ENABLED) {
-    return spawn(SHELL_CMD[0], SHELL_CMD.slice(1), { ...options, env: { ...options.env, SHELL: SHELL_CMD[0] } })
+    // Resolve symlinks (on the Mac /data/obsidian -> ~/Desktop/Vault) so the
+    // shell opens at the real path.
+    const cwd = options.cwd ? fs.realpathSync(options.cwd) : options.cwd
+    return spawn(SHELL_CMD[0], SHELL_CMD.slice(1), { ...options, cwd, env: { ...options.env, SHELL: SHELL_CMD[0], ...(cwd ? { PWD: cwd } : {}) } })
   }
 
   const unit = `pineapple-pty-${sessionId}`
