@@ -3,7 +3,7 @@ import { WebSocket } from 'ws'
 import { v4 as uuidv4 } from 'uuid'
 import path from 'path'
 import { buildPtyEnv } from './ptyEnv'
-import { PtyMode, ptyScopeConfig, spawnPty } from './ptySpawn'
+import { ptyScopeConfig, spawnPty } from './ptySpawn'
 
 const MAX_PTY_SESSIONS = parseInt(process.env.MAX_PTY_SESSIONS || '5')
 // Traefik v3 closes connections it reads no client data from for 60s
@@ -17,7 +17,7 @@ const OBSIDIAN_PATH = process.env.CLAUDE_MD_PATH
 
 const activeSessions = new Map<string, IPty>()
 
-export function handleTerminalConnection(ws: WebSocket, mode: PtyMode = 'shell'): void {
+export function handleTerminalConnection(ws: WebSocket): void {
   if (activeSessions.size >= MAX_PTY_SESSIONS) {
     ws.close(1008, 'Session limit reached')
     return
@@ -37,14 +37,14 @@ export function handleTerminalConnection(ws: WebSocket, mode: PtyMode = 'shell')
       rows: 24,
       cwd: OBSIDIAN_PATH,
       env: buildPtyEnv(),
-    }, mode)
+    })
   } catch (err) {
     console.error('[PTY] spawn failed:', err)
     ws.close(1011, 'PTY spawn failed')
     return
   }
 
-  console.log('[PTY] spawned', { sessionId, mode, cwd: OBSIDIAN_PATH, scope: ptyScopeConfig() })
+  console.log('[PTY] spawned', { sessionId, cwd: OBSIDIAN_PATH, scope: ptyScopeConfig() })
 
   // node-pty rethrows non-EIO/EAGAIN socket errors as uncaught exceptions
   // unless at least one external 'error' listener is attached — this listener

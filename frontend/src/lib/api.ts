@@ -3,10 +3,10 @@ import { supabase } from './supabase'
 const BASE_URL = import.meta.env.VITE_API_BASE_URL as string
 export { BASE_URL }
 export const WS_URL = import.meta.env.VITE_API_WS_URL as string
-// The Herdr tab must reach the backend running next to the herdr hub (the Mac
-// Mini). Until pineapple-api is cut over there, these point at its own host.
-export const HERDR_BASE_URL = (import.meta.env.VITE_HERDR_API_BASE_URL as string) || BASE_URL
-export const HERDR_WS_URL = (import.meta.env.VITE_HERDR_API_WS_URL as string) || WS_URL
+// Optional second backend on the Mac Mini, used by "Mac" terminal tabs.
+// When unset, the Mac option is hidden.
+export const MAC_BASE_URL = import.meta.env.VITE_MAC_API_BASE_URL as string | undefined
+export const MAC_WS_URL = import.meta.env.VITE_MAC_API_WS_URL as string | undefined
 
 async function authFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const { data: { session } } = await supabase.auth.getSession()

@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { supabase } from '../lib/supabase'
-import { BASE_URL, HERDR_BASE_URL, HERDR_WS_URL, WS_URL } from '../lib/api'
+import { BASE_URL, MAC_BASE_URL, MAC_WS_URL, WS_URL } from '../lib/api'
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
 type Transport = 'ws' | 'http'
@@ -56,13 +56,13 @@ function buildXtermTheme() {
 interface TerminalProps {
   className?: string
   isActive?: boolean
-  // 'herdr' attaches to the herdr hub session instead of a fresh shell.
-  mode?: 'shell' | 'herdr'
+  // Which machine's backend this terminal connects to.
+  host?: 'vps' | 'mac'
 }
 
-export function Terminal({ className = '', isActive = true, mode = 'shell' }: TerminalProps) {
-  const apiBase = mode === 'herdr' ? HERDR_BASE_URL : BASE_URL
-  const wsBase = mode === 'herdr' ? HERDR_WS_URL : WS_URL
+export function Terminal({ className = '', isActive = true, host = 'vps' }: TerminalProps) {
+  const apiBase = host === 'mac' && MAC_BASE_URL ? MAC_BASE_URL : BASE_URL
+  const wsBase = host === 'mac' && MAC_WS_URL ? MAC_WS_URL : WS_URL
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -312,7 +312,7 @@ export function Terminal({ className = '', isActive = true, mode = 'shell' }: Te
       let firstMessageAt: number | null = null
       let ws: WebSocket
       try {
-        ws = new WebSocket(`${wsBase}/terminal?token=${encodeURIComponent(token)}${mode === 'herdr' ? '&mode=herdr' : ''}`)
+        ws = new WebSocket(`${wsBase}/terminal?token=${encodeURIComponent(token)}`)
       } catch {
         console.warn('[Terminal] WS construct failed', { attemptId })
         resolve(false)
@@ -397,7 +397,7 @@ export function Terminal({ className = '', isActive = true, mode = 'shell' }: Te
         // onclose fires after onerror — handled there
       }
     })
-  }, [mode, safeFit, startReconnectCountdown, writeOutput, wsBase])
+  }, [safeFit, startReconnectCountdown, writeOutput, wsBase])
 
   const runOutputStream = useCallback(async (sessionId: string) => {
     if (isUnmountedRef.current) return
@@ -509,7 +509,7 @@ export function Terminal({ className = '', isActive = true, mode = 'shell' }: Te
   // Fallback transport: authenticated HTTP output stream for networks that drop WebSockets.
   const startHttpSession = useCallback(async () => {
     try {
-      const startResp = await authedFetch('/api/terminal/start', { method: 'POST', body: JSON.stringify({ mode }) })
+      const startResp = await authedFetch('/api/terminal/start', { method: 'POST' })
       if (!startResp.ok) throw new Error(`start failed: ${startResp.status}`)
       const startBody = await startResp.json() as { sessionId: string; capability?: string }
       sessionIdRef.current = startBody.sessionId
@@ -529,7 +529,7 @@ export function Terminal({ className = '', isActive = true, mode = 'shell' }: Te
       setWsStatus('disconnected')
       startReconnectCountdown()
     }
-  }, [authedFetch, mode, runOutputStream, safeFit, startInputStream, startReconnectCountdown])
+  }, [authedFetch, runOutputStream, safeFit, startInputStream, startReconnectCountdown])
 
   const connect = useCallback(async () => {
     if (isUnmountedRef.current || connectingRef.current) return

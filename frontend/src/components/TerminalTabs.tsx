@@ -1,10 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Terminal } from './Terminal'
+import { MAC_BASE_URL, MAC_WS_URL } from '../lib/api'
+
+type Host = 'vps' | 'mac'
+
+const MAC_AVAILABLE = Boolean(MAC_BASE_URL && MAC_WS_URL)
 
 interface Tab {
   id: string
   label: string
+  host: Host
 }
 
 interface TabsState {
@@ -12,11 +18,11 @@ interface TabsState {
   activeId: string
 }
 
-let tabSeq = 0
+const tabSeq: Record<Host, number> = { vps: 0, mac: 0 }
 
-function makeTab(): Tab {
-  tabSeq++
-  return { id: crypto.randomUUID(), label: `bash ${tabSeq}` }
+function makeTab(host: Host = 'vps'): Tab {
+  tabSeq[host]++
+  return { id: crypto.randomUUID(), label: `${host} ${tabSeq[host]}`, host }
 }
 
 const MAX_TABS = 5
@@ -40,10 +46,10 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
     onTabCountChange?.(tabs.length)
   }, [tabs.length, onTabCountChange])
 
-  const addTab = useCallback(() => {
+  const addTab = useCallback((host: Host = 'vps') => {
     setState(s => {
       if (s.tabs.length >= MAX_TABS) return s
-      const tab = makeTab()
+      const tab = makeTab(host)
       return { tabs: [...s.tabs, tab], activeId: tab.id }
     })
   }, [])
@@ -163,15 +169,17 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
           )
         })}
 
-        {tabs.length < MAX_TABS && (
+        {tabs.length < MAX_TABS && (MAC_AVAILABLE ? ['vps', 'mac'] as const : ['vps'] as const).map(host => (
           <button
-            className="flex items-center justify-center w-6 h-6 mb-0.5 rounded text-slate-600 hover:text-slate-300 hover:bg-navy-700 transition-all self-center cursor-pointer"
-            onClick={addTab}
-            title="New tab (Ctrl+Shift+T)"
+            key={host}
+            className="flex items-center justify-center gap-0.5 h-6 px-1.5 mb-0.5 rounded text-slate-600 hover:text-slate-300 hover:bg-navy-700 transition-all self-center cursor-pointer"
+            onClick={() => addTab(host)}
+            title={host === 'vps' ? 'New VPS terminal (Ctrl+Shift+T)' : 'New Mac Mini terminal'}
           >
             <Plus size={13} strokeWidth={2} />
+            {MAC_AVAILABLE && <span className="text-[10px] font-mono uppercase">{host}</span>}
           </button>
-        )}
+        ))}
 
         <div className="flex-1" />
         <span className="text-[10px] text-slate-700 self-center pr-2 mb-0.5 font-mono hidden xl:block">
@@ -190,6 +198,7 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
             <Terminal
               className="h-full rounded-none border-0 shadow-none"
               isActive={tab.id === activeId}
+              host={tab.host}
             />
           </div>
         ))}

@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { NavBar, type ViewMode } from '../components/NavBar'
 import { WidgetBar } from '../components/WidgetBar'
 import { TerminalTabs } from '../components/TerminalTabs'
-import { Terminal } from '../components/Terminal'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { VaultTree } from '../components/VaultTree'
 import { VaultEditor, type OpenFile } from '../components/VaultEditor'
@@ -55,7 +54,7 @@ type SidebarTab = 'memory' | 'files' | 'agents' | 'graph'
 function loadViewMode(): ViewMode {
   try {
     const v = localStorage.getItem(VIEW_MODE_KEY)
-    if (v === 'terminal' || v === 'graph' || v === 'vault' || v === 'herdr') return v
+    if (v === 'terminal' || v === 'graph' || v === 'vault') return v
   } catch {}
   return 'terminal'
 }
@@ -260,11 +259,6 @@ function DesktopDashboard() {
               <TerminalTabs className="h-full" onTabCountChange={setTabCount} />
             </ErrorBoundary>
           </div>
-          {viewMode === 'herdr' && (
-            <ErrorBoundary>
-              <Terminal className="h-full" mode="herdr" />
-            </ErrorBoundary>
-          )}
           {viewMode === 'graph' && (
             <ErrorBoundary>
               <GraphView className="h-full" onOpenNote={handleOpenFile} />

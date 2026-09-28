@@ -21,11 +21,8 @@ LaunchAgent `~/Library/LaunchAgents/tech.lexitools.herdr.plist` runs `herdr serv
 - Restart: `launchctl kickstart -k gui/$(id -u)/tech.lexitools.herdr`
 - After a restart the layout is restored and Claude resumes its session. **Codex and Pi come back as plain shells.** Run `herdr agent start codex --kind codex --pane w2:p2` and `herdr agent start pi --kind pi --pane w2:p4` (check pane IDs with `herdr pane list --workspace w2`).
 
-## Pineapple `Herdr` tab (Phase 5)
-- Backend: `ptySpawn.ts` has `PtyMode = 'shell' | 'herdr'` + `parsePtyMode()`. `herdr` mode spawns `$HERDR_BIN` (default `herdr`, on the daemon's PATH via `~/.local/bin`). WS: `/terminal?token=…&mode=herdr`; HTTP: `POST /api/terminal/start {mode}`. Same JWT/allowlist, and any other value falls back to `shell`.
-- Frontend: `ViewMode` + a `Herdr` NavBar entry. Dashboard renders `<Terminal mode="herdr" />` full width. Terminal tab untouched.
-- Closing the tab kills only the herdr *client* PTY; the hub and its agents keep running (module-tested 2026-09-28).
-- **Deploy order:** (1) Mac backend → `/opt/pineapple-api/dist` + `chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper` + restart; (2) the pineapple-api DNS cutover to the Mac (migration Phase 5); (3) only then the frontend to Vercel. Against the VPS backend, the old code ignores `mode` and the tab would open a VPS bash shell.
+## Pineapple `Herdr` tab: removed 2026-09-28
+Sid didn't want herdr inside Pineapple, so the Herdr tab (`924f769`) was reverted the same day. Pineapple's Terminal now has **`+ VPS` / `+ Mac`** buttons instead. Mac tabs open a plain shell on the Mac Mini through `pineapple-api-mac.lexitools.tech` (Vercel env `VITE_MAC_API_BASE_URL` / `VITE_MAC_API_WS_URL`; the old `VITE_HERDR_API_*` vars are deleted). To use herdr, run `herdr` in a Mac terminal tab or over SSH. The hub itself is unchanged.
 
 ## Start the server manually (clean env)
 Launching from inside a Claude Code session leaks `CLAUDE_CODE_CHILD_SESSION` into every pane, which turns off transcript saving. Always start it with a clean environment:

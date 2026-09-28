@@ -4,7 +4,7 @@ import path from 'path'
 import crypto from 'crypto'
 import type { Response } from 'express'
 import { buildPtyEnv } from './ptyEnv'
-import { PtyMode, ptyScopeConfig, spawnPty } from './ptySpawn'
+import { ptyScopeConfig, spawnPty } from './ptySpawn'
 
 const MAX_PTY_SESSIONS = parseInt(process.env.MAX_PTY_SESSIONS || '5')
 const OBSIDIAN_PATH = process.env.CLAUDE_MD_PATH
@@ -126,7 +126,7 @@ function flushWaiters(session: TerminalSession): void {
   }
 }
 
-export function startTerminalSession(mode: PtyMode = 'shell'): { sessionId: string; capability: string } {
+export function startTerminalSession(): { sessionId: string; capability: string } {
   if (sessions.size >= MAX_PTY_SESSIONS) {
     throw new Error('Session limit reached')
   }
@@ -139,7 +139,7 @@ export function startTerminalSession(mode: PtyMode = 'shell'): { sessionId: stri
     rows: 24,
     cwd: OBSIDIAN_PATH,
     env: buildPtyEnv(),
-  }, mode)
+  })
 
   const session: TerminalSession = {
     id,

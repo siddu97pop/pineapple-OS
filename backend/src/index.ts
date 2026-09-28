@@ -6,7 +6,6 @@ import cors from 'cors'
 import jwt from 'jsonwebtoken'
 import { requireAuth, extractAuthToken, isAllowedUser } from './auth'
 import { handleTerminalConnection } from './terminal'
-import { parsePtyMode } from './ptySpawn'
 import {
   startTerminalSession,
   pollTerminalSession,
@@ -116,9 +115,9 @@ function requireTerminalSession(req: express.Request, res: express.Response, nex
 }
 
 // HTTP terminal fallback for environments that aggressively drop WebSockets.
-app.post('/api/terminal/start', requireAuth, (req, res) => {
+app.post('/api/terminal/start', requireAuth, (_req, res) => {
   try {
-    const started = startTerminalSession(parsePtyMode((req.body as any)?.mode))
+    const started = startTerminalSession()
     res.json(started)
   } catch (err) {
     const message = (err as Error).message || 'Failed to start terminal session'
@@ -295,11 +294,7 @@ server.on('upgrade', (request, socket, head) => {
   }
 })
 
-wss.on('connection', (ws, request) => {
-  let mode: unknown
-  try { mode = new URL(request.url || '', 'http://x').searchParams.get('mode') } catch {}
-  handleTerminalConnection(ws, parsePtyMode(mode))
-})
+wss.on('connection', (ws) => handleTerminalConnection(ws))
 
 const PORT = parseInt(process.env.PORT || '3456')
 const SESSIONS_PATH = process.env.SESSIONS_MD_PATH || '/data/obsidian/logs/sessions.md'
