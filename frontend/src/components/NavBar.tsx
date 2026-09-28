@@ -23,13 +23,14 @@ const THEMES: { key: Theme; label: string; swatch: string }[] = [
   { key: 'brass', label: 'Brass', swatch: '#E8B23C' },
 ]
 
-export type ViewMode = 'terminal' | 'graph' | 'vault'
+export type ViewMode = 'terminal' | 'graph' | 'vault' | 'herdr'
 
 function ViewModeToggle({ viewMode, onChange }: { viewMode: ViewMode; onChange: (v: ViewMode) => void }) {
   const MODES: { key: ViewMode; label: string }[] = [
     { key: 'terminal', label: 'Terminal' },
     { key: 'graph', label: 'Graph' },
     { key: 'vault', label: 'Vault' },
+    { key: 'herdr', label: 'Herdr' },
   ]
   return (
     <div
