@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { DotGrid } from '../components/DotGrid'
-import { setRememberMe } from '../hooks/useAuth'
+import { clearSessionFlags, setRememberMe } from '../hooks/useAuth'
 
 type Mode = 'login' | 'reset'
 
@@ -17,11 +17,14 @@ export function Login() {
     e.preventDefault()
     setLoading(true)
     setMessage(null)
+    // Set the session flags before signing in: SIGNED_IN fires before the
+    // promise resolves, and the fresh useAuth in ProtectedRoute signs out a
+    // session it finds without them.
+    setRememberMe(rememberMe)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
+      clearSessionFlags()
       setMessage({ type: 'error', text: error.message })
-    } else {
-      setRememberMe(rememberMe)
     }
     setLoading(false)
   }
