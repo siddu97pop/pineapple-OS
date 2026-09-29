@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Terminal } from './Terminal'
-import { MAC_BASE_URL, MAC_WS_URL } from '../lib/api'
+import { VPS_BASE_URL, VPS_WS_URL } from '../lib/api'
 
 type Host = 'vps' | 'mac'
 
-const MAC_AVAILABLE = Boolean(MAC_BASE_URL && MAC_WS_URL)
+// The Mac Mini is the default; the VPS option only appears when its backend is configured.
+const VPS_AVAILABLE = Boolean(VPS_BASE_URL && VPS_WS_URL)
+const HOSTS: readonly Host[] = VPS_AVAILABLE ? ['mac', 'vps'] : ['mac']
 
 interface Tab {
   id: string
@@ -20,7 +22,7 @@ interface TabsState {
 
 const tabSeq: Record<Host, number> = { vps: 0, mac: 0 }
 
-function makeTab(host: Host = 'vps'): Tab {
+function makeTab(host: Host = 'mac'): Tab {
   tabSeq[host]++
   return { id: crypto.randomUUID(), label: `${host} ${tabSeq[host]}`, host }
 }
@@ -46,7 +48,7 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
     onTabCountChange?.(tabs.length)
   }, [tabs.length, onTabCountChange])
 
-  const addTab = useCallback((host: Host = 'vps') => {
+  const addTab = useCallback((host: Host = 'mac') => {
     setState(s => {
       if (s.tabs.length >= MAX_TABS) return s
       const tab = makeTab(host)
@@ -169,15 +171,15 @@ export function TerminalTabs({ className = '', onTabCountChange }: TerminalTabsP
           )
         })}
 
-        {tabs.length < MAX_TABS && (MAC_AVAILABLE ? ['vps', 'mac'] as const : ['vps'] as const).map(host => (
+        {tabs.length < MAX_TABS && HOSTS.map(host => (
           <button
             key={host}
             className="flex items-center justify-center gap-0.5 h-6 px-1.5 mb-0.5 rounded text-slate-600 hover:text-slate-300 hover:bg-navy-700 transition-all self-center cursor-pointer"
             onClick={() => addTab(host)}
-            title={host === 'vps' ? 'New VPS terminal (Ctrl+Shift+T)' : 'New Mac Mini terminal'}
+            title={host === 'mac' ? 'New Mac Mini terminal (Ctrl+Shift+T)' : 'New VPS terminal'}
           >
             <Plus size={13} strokeWidth={2} />
-            {MAC_AVAILABLE && <span className="text-[10px] font-mono uppercase">{host}</span>}
+            {HOSTS.length > 1 && <span className="text-[10px] font-mono uppercase">{host}</span>}
           </button>
         ))}
 

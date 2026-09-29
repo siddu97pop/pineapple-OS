@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { supabase } from '../lib/supabase'
-import { BASE_URL, MAC_BASE_URL, MAC_WS_URL, WS_URL } from '../lib/api'
+import { BASE_URL, MAC_BASE_URL, MAC_WS_URL, VPS_BASE_URL, VPS_WS_URL, WS_URL } from '../lib/api'
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
 type Transport = 'ws' | 'http'
@@ -60,9 +60,11 @@ interface TerminalProps {
   host?: 'vps' | 'mac'
 }
 
-export function Terminal({ className = '', isActive = true, host = 'vps' }: TerminalProps) {
-  const apiBase = host === 'mac' && MAC_BASE_URL ? MAC_BASE_URL : BASE_URL
-  const wsBase = host === 'mac' && MAC_WS_URL ? MAC_WS_URL : WS_URL
+export function Terminal({ className = '', isActive = true, host = 'mac' }: TerminalProps) {
+  const apiBase = host === 'vps' && VPS_BASE_URL ? VPS_BASE_URL
+    : host === 'mac' && MAC_BASE_URL ? MAC_BASE_URL : BASE_URL
+  const wsBase = host === 'vps' && VPS_WS_URL ? VPS_WS_URL
+    : host === 'mac' && MAC_WS_URL ? MAC_WS_URL : WS_URL
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
