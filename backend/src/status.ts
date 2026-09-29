@@ -1,5 +1,4 @@
 import { Request, Response } from 'express'
-import fs from 'fs/promises'
 import os from 'os'
 
 const loadHistory: number[] = []
@@ -7,8 +6,7 @@ const MAX_HISTORY = 10
 
 async function sampleLoad(): Promise<void> {
   try {
-    const raw = await fs.readFile('/proc/loadavg', 'utf8')
-    const load1 = parseFloat(raw.split(' ')[0])
+    const load1 = os.loadavg()[0]
     loadHistory.push(load1)
     if (loadHistory.length > MAX_HISTORY) loadHistory.splice(0, loadHistory.length - MAX_HISTORY)
   } catch {}
@@ -19,15 +17,12 @@ setInterval(() => void sampleLoad(), 30_000)
 
 export async function getStatusHandler(req: Request, res: Response): Promise<void> {
   try {
-    const uptimeRaw = await fs.readFile('/proc/uptime', 'utf8')
-    const uptimeSecs = parseFloat(uptimeRaw.split(' ')[0])
-    const loadRaw = await fs.readFile('/proc/loadavg', 'utf8')
-    const parts = loadRaw.split(' ')
+    const [load1, load5, load15] = os.loadavg()
     res.json({
-      uptime_seconds: uptimeSecs,
-      load_1: parseFloat(parts[0]),
-      load_5: parseFloat(parts[1]),
-      load_15: parseFloat(parts[2]),
+      uptime_seconds: os.uptime(),
+      load_1: load1,
+      load_5: load5,
+      load_15: load15,
       hostname: os.hostname(),
       load_history: [...loadHistory],
     })
