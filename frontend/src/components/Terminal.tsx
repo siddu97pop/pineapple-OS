@@ -629,6 +629,10 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
       lineHeight: 1.5,
       cursorBlink: true,
       scrollback: 5000,
+      // When an app has mouse tracking on (Claude Code's fullscreen mode),
+      // Option-drag on macOS / Shift-drag elsewhere still makes a normal
+      // browser selection.
+      macOptionClickForcesSelection: true,
     })
     const fitAddon = new FitAddon()
     const webLinksAddon = new WebLinksAddon()
@@ -660,6 +664,19 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
       term.options.fontFamily = FONT_FAMILY
       safeFitRef.current()
     }).catch(() => {})
+
+    // Claude Code's fullscreen mode does its own mouse selection and copies it
+    // with OSC 52, which xterm.js ignores by default. Write-only: a remote
+    // program may set the browser clipboard but never read it.
+    term.parser.registerOscHandler(52, (data) => {
+      const b64 = data.slice(data.indexOf(';') + 1)
+      if (!b64 || b64 === '?') return true
+      try {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+        void navigator.clipboard?.writeText(new TextDecoder().decode(bytes)).catch(() => {})
+      } catch {}
+      return true
+    })
 
     const dataDisposable = term.onData((data) => {
       sendInputRef.current(data)
