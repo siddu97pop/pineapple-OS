@@ -7,6 +7,10 @@ export const WS_URL = import.meta.env.VITE_API_WS_URL as string
 // When unset, the Mac option is hidden.
 export const MAC_BASE_URL = import.meta.env.VITE_MAC_API_BASE_URL as string | undefined
 export const MAC_WS_URL = import.meta.env.VITE_MAC_API_WS_URL as string | undefined
+// Optional direct WebSocket to the Mac over Tailscale (tailscale serve). Mac
+// tabs try it first and fall back to MAC_WS_URL (the Cloudflare tunnel) when
+// the browser isn't on the tailnet.
+export const MAC_DIRECT_WS_URL = import.meta.env.VITE_MAC_DIRECT_WS_URL as string | undefined
 // Optional backend on the VPS, used by "VPS" terminal tabs.
 // When unset, the VPS option is hidden.
 export const VPS_BASE_URL = import.meta.env.VITE_VPS_API_BASE_URL as string | undefined

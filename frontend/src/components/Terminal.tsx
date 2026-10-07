@@ -4,13 +4,15 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { supabase } from '../lib/supabase'
-import { BASE_URL, MAC_BASE_URL, MAC_WS_URL, VPS_BASE_URL, VPS_WS_URL, WS_URL } from '../lib/api'
+import { BASE_URL, MAC_BASE_URL, MAC_DIRECT_WS_URL, MAC_WS_URL, VPS_BASE_URL, VPS_WS_URL, WS_URL } from '../lib/api'
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
 type Transport = 'ws' | 'http'
 type WsResult = 'open' | 'timeout' | 'closed'
 
 const WS_CONNECT_TIMEOUT_MS = 4000
+// Short, because off the tailnet the direct Mac URL never answers.
+const DIRECT_WS_CONNECT_TIMEOUT_MS = 1500
 // A WebSocket that closes before opening (seen through the Cloudflare tunnel)
 // is retried this many times before falling back to the slower HTTP stream.
 const WS_EARLY_CLOSE_ATTEMPTS = 3
@@ -70,6 +72,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
     : host === 'mac' && MAC_BASE_URL ? MAC_BASE_URL : BASE_URL
   const wsBase = host === 'vps' && VPS_WS_URL ? VPS_WS_URL
     : host === 'mac' && MAC_WS_URL ? MAC_WS_URL : WS_URL
+  const directWsBase = host === 'mac' ? MAC_DIRECT_WS_URL : undefined
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -312,7 +315,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
   // Primary transport: WebSocket. Resolves 'open' once the socket is open,
   // 'closed' if it closes before opening (caller retries), or 'timeout' if it
   // never opens (caller falls back to HTTP).
-  const tryWebSocket = useCallback((token: string) => {
+  const tryWebSocket = useCallback((token: string, base: string, timeoutMs: number) => {
     return new Promise<WsResult>((resolve) => {
       const attemptId = ++wsAttemptRef.current
       const startedAt = performance.now()
@@ -320,7 +323,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
       let firstMessageAt: number | null = null
       let ws: WebSocket
       try {
-        ws = new WebSocket(`${wsBase}/terminal?token=${encodeURIComponent(token)}`)
+        ws = new WebSocket(`${base}/terminal?token=${encodeURIComponent(token)}`)
       } catch {
         console.warn('[Terminal] WS construct failed', { attemptId })
         resolve('timeout')
@@ -337,10 +340,11 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
         try { ws.close(1000, 'timeout') } catch {}
         console.warn('[Terminal] WS timeout', {
           attemptId,
+          base,
           elapsedMs: Math.round(performance.now() - startedAt),
         })
         resolve('timeout')
-      }, WS_CONNECT_TIMEOUT_MS)
+      }, timeoutMs)
 
       ws.onopen = () => {
         if (settled || attemptId !== wsAttemptRef.current) {
@@ -359,6 +363,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
         setWsStatus('connected')
         console.info('[Terminal] WS open', {
           attemptId,
+          base,
           elapsedMs: Math.round(performance.now() - startedAt),
         })
         safeFit()
@@ -405,7 +410,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
         // onclose fires after onerror — handled there
       }
     })
-  }, [safeFit, startReconnectCountdown, writeOutput, wsBase])
+  }, [safeFit, startReconnectCountdown, writeOutput])
 
   const runOutputStream = useCallback(async (sessionId: string) => {
     if (isUnmountedRef.current) return
@@ -554,8 +559,12 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
       if (!session?.access_token || isUnmountedRef.current) return
       tokenRef.current = session.access_token
 
+      if (directWsBase) {
+        const direct = await tryWebSocket(session.access_token, directWsBase, DIRECT_WS_CONNECT_TIMEOUT_MS)
+        if (direct === 'open' || isUnmountedRef.current) return
+      }
       for (let attempt = 1; ; attempt++) {
-        const result = await tryWebSocket(session.access_token)
+        const result = await tryWebSocket(session.access_token, wsBase, WS_CONNECT_TIMEOUT_MS)
         if (result === 'open' || isUnmountedRef.current) return
         if (result === 'timeout' || attempt >= WS_EARLY_CLOSE_ATTEMPTS) break
         await new Promise((r) => window.setTimeout(r, 500 * attempt))
@@ -565,7 +574,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
     } finally {
       connectingRef.current = false
     }
-  }, [disconnectWs, startHttpSession, stopHttpSession, stopPolling, tryWebSocket])
+  }, [directWsBase, disconnectWs, startHttpSession, stopHttpSession, stopPolling, tryWebSocket, wsBase])
 
   useEffect(() => {
     connectRef.current = connect
