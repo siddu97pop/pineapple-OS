@@ -8,8 +8,13 @@ import { BASE_URL, MAC_BASE_URL, MAC_WS_URL, VPS_BASE_URL, VPS_WS_URL, WS_URL } 
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
 type Transport = 'ws' | 'http'
+type WsResult = 'open' | 'timeout' | 'closed'
 
 const WS_CONNECT_TIMEOUT_MS = 4000
+// A WebSocket that closes before opening (seen through the Cloudflare tunnel)
+// is retried this many times before falling back to the slower HTTP stream.
+const WS_EARLY_CLOSE_ATTEMPTS = 3
+const FONT_FAMILY = 'JetBrains Mono, Fira Code, monospace'
 const MAX_PENDING_OUTPUT_CHARS = 1_000_000
 
 // xterm renders to canvas and parses colours itself, so it cannot use CSS
@@ -304,10 +309,11 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
     }, 3000)
   }, [stopPolling])
 
-  // Primary transport: WebSocket. Resolves true once the socket is open,
-  // false if it fails to open within the timeout (caller falls back to HTTP).
+  // Primary transport: WebSocket. Resolves 'open' once the socket is open,
+  // 'closed' if it closes before opening (caller retries), or 'timeout' if it
+  // never opens (caller falls back to HTTP).
   const tryWebSocket = useCallback((token: string) => {
-    return new Promise<boolean>((resolve) => {
+    return new Promise<WsResult>((resolve) => {
       const attemptId = ++wsAttemptRef.current
       const startedAt = performance.now()
       let settled = false
@@ -317,7 +323,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
         ws = new WebSocket(`${wsBase}/terminal?token=${encodeURIComponent(token)}`)
       } catch {
         console.warn('[Terminal] WS construct failed', { attemptId })
-        resolve(false)
+        resolve('timeout')
         return
       }
 
@@ -333,7 +339,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
           attemptId,
           elapsedMs: Math.round(performance.now() - startedAt),
         })
-        resolve(false)
+        resolve('timeout')
       }, WS_CONNECT_TIMEOUT_MS)
 
       ws.onopen = () => {
@@ -345,7 +351,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
         clearTimeout(failTimer)
         if (isUnmountedRef.current) {
           ws.close()
-          resolve(false)
+          resolve('closed')
           return
         }
         wsRef.current = ws
@@ -356,7 +362,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
           elapsedMs: Math.round(performance.now() - startedAt),
         })
         safeFit()
-        resolve(true)
+        resolve('open')
       }
 
       ws.onmessage = (event) => {
@@ -382,7 +388,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
         if (!settled) {
           settled = true
           clearTimeout(failTimer)
-          resolve(false)
+          resolve('closed')
           return
         }
         if (isUnmountedRef.current || wsRef.current !== ws) return
@@ -548,8 +554,13 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
       if (!session?.access_token || isUnmountedRef.current) return
       tokenRef.current = session.access_token
 
-      const wsConnected = await tryWebSocket(session.access_token)
-      if (wsConnected || isUnmountedRef.current) return
+      for (let attempt = 1; ; attempt++) {
+        const result = await tryWebSocket(session.access_token)
+        if (result === 'open' || isUnmountedRef.current) return
+        if (result === 'timeout' || attempt >= WS_EARLY_CLOSE_ATTEMPTS) break
+        await new Promise((r) => window.setTimeout(r, 500 * attempt))
+        if (isUnmountedRef.current) return
+      }
       await startHttpSession()
     } finally {
       connectingRef.current = false
@@ -604,7 +615,7 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
 
     const term = new XTerm({
       theme: buildXtermTheme(),
-      fontFamily: 'JetBrains Mono, Fira Code, monospace',
+      fontFamily: FONT_FAMILY,
       fontSize: 14,
       lineHeight: 1.5,
       cursorBlink: true,
@@ -628,6 +639,18 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
     rafRef.current = window.requestAnimationFrame(() => {
       safeFitRef.current()
     })
+
+    // The web font loads with display=swap, so xterm can measure its cells
+    // against the fallback font. Remeasure once it arrives, or the grid
+    // overflows the container and the bottom rows (Claude's status line) are
+    // clipped until the window is resized. xterm ignores a same-value option
+    // set, hence the toggle.
+    void document.fonts?.load('14px "JetBrains Mono"').then(() => {
+      if (isUnmountedRef.current) return
+      term.options.fontFamily = 'monospace'
+      term.options.fontFamily = FONT_FAMILY
+      safeFitRef.current()
+    }).catch(() => {})
 
     const dataDisposable = term.onData((data) => {
       sendInputRef.current(data)
@@ -677,13 +700,18 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
 
   return (
     <div className={`relative card overflow-hidden ${className}`}>
-      <div ref={containerRef} className="absolute inset-0 p-2" />
+      {/* Padding lives on a wrapper: FitAddon sizes the grid from the xterm
+          parent's border-box height, so padding on the parent itself made
+          the bottom row overflow and get clipped. */}
+      <div className="absolute inset-0 p-2">
+        <div ref={containerRef} className="h-full w-full" />
+      </div>
 
       {wsStatus === 'connecting' && (
         <div className="absolute inset-0 flex items-center justify-center bg-navy-950/80 z-10">
           <div className="flex flex-col items-center gap-3">
             <div className="w-8 h-8 rounded-full border-2 border-electric border-t-transparent animate-spin" />
-            <span className="text-sm text-slate-400 font-mono">Connecting to VPS...</span>
+            <span className="text-sm text-slate-400 font-mono">Connecting to {host === 'vps' ? 'VPS' : 'Mac'}...</span>
           </div>
         </div>
       )}
