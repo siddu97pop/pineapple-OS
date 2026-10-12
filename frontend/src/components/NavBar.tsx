@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useTheme, type Theme } from '../lib/theme'
 import { clearSessionFlags } from '../hooks/useAuth'
-import { MAC_WS_URL } from '../lib/api'
 
 function PineappleIcon() {
   return (
@@ -24,15 +23,13 @@ const THEMES: { key: Theme; label: string; swatch: string }[] = [
   { key: 'brass', label: 'Brass', swatch: '#E8B23C' },
 ]
 
-export type ViewMode = 'terminal' | 'graph' | 'vault' | 'mac'
+export type ViewMode = 'terminal' | 'graph' | 'vault'
 
 function ViewModeToggle({ viewMode, onChange }: { viewMode: ViewMode; onChange: (v: ViewMode) => void }) {
   const MODES: { key: ViewMode; label: string }[] = [
     { key: 'terminal', label: 'Terminal' },
     { key: 'graph', label: 'Graph' },
     { key: 'vault', label: 'Vault' },
-    // The Mac screen is served by the Mac backend; hide it when that's unset.
-    ...(MAC_WS_URL ? [{ key: 'mac' as const, label: 'Mac' }] : []),
   ]
   return (
     <div
