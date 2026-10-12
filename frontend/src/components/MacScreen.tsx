@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import RFB from '@novnc/novnc'
+import { initLogging } from 'novnc-logging'
 import { Clipboard, ClipboardPaste, Eye, Maximize, Plug, Unplug } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { MAC_DIRECT_WS_URL, MAC_WS_URL } from '../lib/api'
@@ -10,6 +11,17 @@ import { MAC_DIRECT_WS_URL, MAC_WS_URL } from '../lib/api'
 // handles in the browser. Credentials are never stored.
 
 const DIRECT_WS_CONNECT_TIMEOUT_MS = 1500
+
+// noVNC reports why a connection failed only via console.error. Record the
+// last such message so the UI can show it, then re-init noVNC's logger so it
+// binds to the wrapper.
+let lastNoVncError = ''
+const consoleError = console.error.bind(console)
+console.error = (...args: unknown[]) => {
+  if (typeof args[0] === 'string' && /^(Failed |RFB failure)/.test(args[0])) lastNoVncError = args[0]
+  consoleError(...args)
+}
+initLogging('warn')
 
 type Status = 'connecting' | 'credentials' | 'connected' | 'authfailed' | 'disconnected'
 
@@ -89,6 +101,7 @@ export function MacScreen({ className = '' }: { className?: string }) {
     setDetail('')
     setRoute(null)
     setMacClipboard(null)
+    lastNoVncError = ''
 
     const { data: { session } } = await supabase.auth.getSession()
     if (attempt !== attemptRef.current) return
@@ -153,7 +166,8 @@ export function MacScreen({ className = '' }: { className?: string }) {
       rfbRef.current = null
       setStatus(s => (s === 'authfailed' ? s : 'disconnected'))
       if (!(e as CustomEvent).detail?.clean) {
-        setDetail(d => d || 'Connection lost. The session may have been idle for 15 minutes or opened elsewhere.')
+        const reason = lastNoVncError || 'Connection lost. The session may have been idle for 15 minutes or opened elsewhere.'
+        setDetail(d => d || `${reason} (${via}, ${navigator.userAgent.match(/(Firefox|Edg|Chrome|Safari)\/[\d.]+/)?.[0] ?? 'unknown browser'})`)
       }
     })
   }, [teardown, viewOnly])

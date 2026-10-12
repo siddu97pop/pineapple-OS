@@ -13,3 +13,7 @@ declare module '@novnc/novnc' {
     focus(): void
   }
 }
+
+declare module 'novnc-logging' {
+  export function initLogging(level?: 'debug' | 'info' | 'warn' | 'error' | 'none'): void
+}
