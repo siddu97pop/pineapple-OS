@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, lazy, Suspense } from 'react'
 import { NavBar, type ViewMode } from '../components/NavBar'
 import { WidgetBar } from '../components/WidgetBar'
 import { TerminalTabs } from '../components/TerminalTabs'
@@ -14,6 +14,9 @@ import { MobileDashboard } from '../components/MobileDashboard'
 import { DotGrid } from '../components/DotGrid'
 import { GripVertical } from 'lucide-react'
 import { getVaultFile } from '../lib/api'
+
+// noVNC is only needed for the Mac screen view, so keep it out of the main bundle.
+const MacScreen = lazy(() => import('../components/MacScreen'))
 
 const TREE_MIN = 80
 const TREE_MAX = 420
@@ -54,7 +57,7 @@ type SidebarTab = 'memory' | 'files' | 'agents' | 'graph'
 function loadViewMode(): ViewMode {
   try {
     const v = localStorage.getItem(VIEW_MODE_KEY)
-    if (v === 'terminal' || v === 'graph' || v === 'vault') return v
+    if (v === 'terminal' || v === 'graph' || v === 'vault' || v === 'mac') return v
   } catch {}
   return 'terminal'
 }
@@ -262,6 +265,13 @@ function DesktopDashboard() {
           {viewMode === 'graph' && (
             <ErrorBoundary>
               <GraphView className="h-full" onOpenNote={handleOpenFile} />
+            </ErrorBoundary>
+          )}
+          {viewMode === 'mac' && (
+            <ErrorBoundary>
+              <Suspense fallback={null}>
+                <MacScreen className="h-full" />
+              </Suspense>
             </ErrorBoundary>
           )}
           {viewMode === 'vault' && (

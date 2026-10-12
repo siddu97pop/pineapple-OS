@@ -1,11 +1,13 @@
 import 'dotenv/config'
 import express from 'express'
 import http from 'http'
+import { Duplex } from 'stream'
 import { WebSocketServer } from 'ws'
 import cors from 'cors'
 import jwt from 'jsonwebtoken'
 import { requireAuth, extractAuthToken, isAllowedUser } from './auth'
 import { handleTerminalConnection } from './terminal'
+import { handleMacConnection, macVncTarget } from './macVnc'
 import {
   startTerminalSession,
   pollTerminalSession,
@@ -246,49 +248,70 @@ app.post('/api/terminal/stop', requireTerminalSession, (req, res) => {
 })
 
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
+const macWss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
+
+// Shared JWT + allowlist check for WebSocket upgrades. Writes 401/403 and
+// destroys the socket on failure; returns the decoded token on success.
+function verifyUpgradeToken(request: http.IncomingMessage, socket: Duplex): any | null {
+  let token: string | null = null
+  try {
+    const urlParams = new URL(request.url!, 'http://x').searchParams
+    token = urlParams.get('token')
+  } catch {}
+
+  // Log JWT header algorithm for debugging
+  if (token) {
+    try {
+      const headerB64 = token.split('.')[0]
+      const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString())
+      console.log('[WS] JWT header:', JSON.stringify(header))
+    } catch {}
+  }
+  console.log('[WS] upgrade attempt, token present:', !!token)
+
+  if (!token) {
+    console.log('[WS] rejected: no token')
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    socket.destroy()
+    return null
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n'), { algorithms: ['ES256'], audience: 'authenticated' })
+    if (!isAllowedUser(decoded)) {
+      console.log('[WS] rejected: user not allowed')
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+      socket.destroy()
+      return null
+    }
+    console.log('[WS] JWT verified OK, upgrading')
+    return decoded
+  } catch (err) {
+    console.error('[WS] JWT verify failed:', (err as Error).message)
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    socket.destroy()
+    return null
+  }
+}
 
 server.on('upgrade', (request, socket, head) => {
   if (request.url?.startsWith('/terminal')) {
-    let token: string | null = null
-    try {
-      const urlParams = new URL(request.url, 'http://x').searchParams
-      token = urlParams.get('token')
-    } catch {}
-
-    // Log JWT header algorithm for debugging
-    if (token) {
-      try {
-        const headerB64 = token.split('.')[0]
-        const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString())
-        console.log('[WS] JWT header:', JSON.stringify(header))
-      } catch {}
-    }
-    console.log('[WS] upgrade attempt, token present:', !!token)
-
-    if (!token) {
-      console.log('[WS] rejected: no token')
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    if (!verifyUpgradeToken(request, socket)) return
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request)
+    })
+  } else if (request.url?.startsWith('/mac')) {
+    // Fail closed: no MAC_VNC_HOST, no screen bridge.
+    if (!macVncTarget()) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
       socket.destroy()
       return
     }
-
-    try {
-      const decoded = jwt.verify(token, process.env.SUPABASE_JWT_PUBLIC_KEY!.replace(/\\n/g, '\n'), { algorithms: ['ES256'], audience: 'authenticated' })
-      if (!isAllowedUser(decoded)) {
-        console.log('[WS] rejected: user not allowed')
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      console.log('[WS] JWT verified OK, upgrading')
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request)
-      })
-    } catch (err) {
-      console.error('[WS] JWT verify failed:', (err as Error).message)
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-    }
+    const decoded = verifyUpgradeToken(request, socket)
+    if (!decoded) return
+    macWss.handleUpgrade(request, socket, head, (ws) => {
+      handleMacConnection(ws, decoded.email)
+    })
   } else {
     socket.destroy()
   }
