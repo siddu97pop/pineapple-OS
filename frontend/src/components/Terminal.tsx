@@ -516,8 +516,12 @@ export function Terminal({ className = '', isActive = true, host = 'mac' }: Term
       // Continue with the compatibility POST path if streaming uploads are
       // unavailable in this browser or are rejected by the proxy.
       if (inputBufferRef.current) scheduleInputFlush()
+      // The initial resize was enqueued on the failed stream and is lost, so
+      // the PTY would stay at its 80x24 spawn size (Claude's status line
+      // rendered off-screen) until the window was resized. Resend it.
+      void sendResize()
     })
-  }, [scheduleInputFlush, terminalFetch])
+  }, [scheduleInputFlush, sendResize, terminalFetch])
 
   // Fallback transport: authenticated HTTP output stream for networks that drop WebSockets.
   const startHttpSession = useCallback(async () => {
